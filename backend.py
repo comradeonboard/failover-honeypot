@@ -13,7 +13,7 @@ import re
 from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
 import logging
@@ -107,6 +107,203 @@ class AlertStore:
 
 alert_store = AlertStore()
 
+class HostStore:
+    """Persists console hosts. The FIRST device ever to log in is the MAIN
+    SERVER — permanently; every later device (e.g. a phone) is a SECOND HOST."""
+
+    def __init__(self, path=DB_PATH):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except OSError:
+            path = "honeypot.db"
+        self.path = path
+        self.lock = threading.Lock()
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS hosts (
+                device_id TEXT PRIMARY KEY,
+                device TEXT, os TEXT, browser TEXT, ip TEXT,
+                role TEXT, first_login TEXT, last_seen TEXT
+            )"""
+        )
+        self.conn.commit()
+        logger.info(f"Host store ready: {self.path}")
+
+    def register(self, device_id, device, os_name, browser, ip):
+        """Register or refresh a host. Returns its role ('main' or 'secondary')."""
+        now = datetime.now().isoformat()
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT role FROM hosts WHERE device_id = ?", (device_id,)
+            ).fetchone()
+            if row:
+                self.conn.execute(
+                    "UPDATE hosts SET device=?, os=?, browser=?, ip=?, last_seen=? WHERE device_id=?",
+                    (device, os_name, browser, ip, now, device_id),
+                )
+                self.conn.commit()
+                return row[0]
+            count = self.conn.execute("SELECT COUNT(*) FROM hosts").fetchone()[0]
+            role = "main" if count == 0 else "secondary"
+            self.conn.execute(
+                "INSERT INTO hosts (device_id, device, os, browser, ip, role, first_login, last_seen) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (device_id, device, os_name, browser, ip, role, now, now),
+            )
+            self.conn.commit()
+            return role
+
+    def touch(self, device_id):
+        """Mark a host as active (called throttled from the auth middleware)."""
+        with self.lock:
+            self.conn.execute(
+                "UPDATE hosts SET last_seen=? WHERE device_id=?",
+                (datetime.now().isoformat(), device_id),
+            )
+            self.conn.commit()
+
+    def to_list(self):
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT device_id, device, os, browser, ip, role, first_login, last_seen "
+                "FROM hosts ORDER BY first_login ASC"
+            ).fetchall()
+        now = datetime.now()
+        hosts = []
+        for r in rows:
+            try:
+                active = (now - datetime.fromisoformat(r[7])).total_seconds() < 90
+            except (TypeError, ValueError):
+                active = False
+            hosts.append({
+                "device_id": r[0], "device": r[1], "os": r[2], "browser": r[3],
+                "ip": r[4], "role": r[5], "first_login": r[6], "last_seen": r[7],
+                "online": active,
+            })
+        return hosts
+
+host_store = HostStore()
+
+# ============ DEFENSE ENGINE ============
+
+DEFENSE_AUTO_BAN_THRESHOLD = 25     # attacks in window before auto-quarantine
+DEFENSE_WINDOW_SECONDS = 300        # 5-minute sliding window
+DEFENSE_QUARANTINE_SECONDS = 600    # auto-quarantine duration
+
+class DefenseEngine:
+    """Defensive protocols: an IP blocklist enforced at every honeypot,
+    auto-quarantine for aggressive attackers, manual operator blacklist."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.banned = {}    # ip -> {"reason", "permanent", "expires_at", "blocked"}
+        self.events = []    # recent defense actions
+        self.activity = {}  # ip -> [alert epochs] within the sliding window
+        self.total_blocked_attempts = 0
+
+    def log(self, event_type, message):
+        self.events.append({
+            "type": event_type,
+            "message": message,
+            "timestamp": datetime.now().isoformat(),
+        })
+        if len(self.events) > 100:
+            self.events = self.events[-100:]
+        logger.warning(f"DEFENSE {event_type}: {message}")
+
+    def ban(self, ip, reason, permanent=False, duration=DEFENSE_QUARANTINE_SECONDS):
+        with self.lock:
+            self.banned[ip] = {
+                "reason": reason,
+                "permanent": permanent,
+                "expires_at": None if permanent else time.time() + duration,
+                "blocked": 0,
+            }
+            self.log("BLACKLIST" if permanent else "QUARANTINE", f"{ip} — {reason}")
+
+    def unban(self, ip):
+        with self.lock:
+            if ip in self.banned:
+                del self.banned[ip]
+                self.log("UNBAN", f"{ip} released from blocklist")
+
+    def is_banned(self, ip):
+        with self.lock:
+            entry = self.banned.get(ip)
+            if not entry:
+                return False
+            if entry["permanent"]:
+                return True
+            if time.time() > entry["expires_at"]:
+                del self.banned[ip]
+                return False
+            return True
+
+    def block_attempt(self, ip):
+        """Record a connection attempt that was dropped by the blocklist."""
+        with self.lock:
+            self.total_blocked_attempts += 1
+            entry = self.banned.get(ip)
+            if entry:
+                entry["blocked"] = entry.get("blocked", 0) + 1
+
+    def observe(self, ip):
+        """Track attacker activity; auto-quarantine aggressive sources."""
+        if not ip:
+            return
+        with self.lock:
+            now = time.time()
+            times = [t for t in self.activity.get(ip, []) if now - t < DEFENSE_WINDOW_SECONDS]
+            times.append(now)
+            self.activity[ip] = times
+            if len(times) >= DEFENSE_AUTO_BAN_THRESHOLD and ip not in self.banned:
+                self.banned[ip] = {
+                    "reason": f"Auto-quarantine: {len(times)} attacks in {DEFENSE_WINDOW_SECONDS // 60} min",
+                    "permanent": False,
+                    "expires_at": now + DEFENSE_QUARANTINE_SECONDS,
+                    "blocked": 0,
+                }
+                self.log(
+                    "AUTO_QUARANTINE",
+                    f"{ip} quarantined for {DEFENSE_QUARANTINE_SECONDS // 60} min after {len(times)} attacks",
+                )
+
+    def to_dict(self):
+        with self.lock:
+            now = time.time()
+            expired = [ip for ip, e in self.banned.items()
+                      if not e["permanent"] and now > e["expires_at"]]
+            for ip in expired:
+                del self.banned[ip]
+                self.log("QUARANTINE_LIFTED", f"{ip} quarantine expired — released")
+            banned = [
+                {
+                    "ip": ip,
+                    "reason": e["reason"],
+                    "permanent": e["permanent"],
+                    "expires_at": int(e["expires_at"]) if e["expires_at"] else None,
+                    "blocked_attempts": e.get("blocked", 0),
+                }
+                for ip, e in self.banned.items()
+            ]
+            events = self.events[-30:]
+            total = self.total_blocked_attempts
+        return {
+            "modules": [
+                {"name": "TCP Connection Guard",
+                 "detail": "Connections from blacklisted IPs are dropped at every honeypot"},
+                {"name": "Aggressive Attacker Quarantine",
+                 "detail": f"Sources reaching {DEFENSE_AUTO_BAN_THRESHOLD} attacks in {DEFENSE_WINDOW_SECONDS // 60} min are auto-quarantined for {DEFENSE_QUARANTINE_SECONDS // 60} min"},
+                {"name": "Manual Blacklist",
+                 "detail": "Operator can permanently blacklist any IP from the console"},
+            ],
+            "banned": banned,
+            "events": events,
+            "total_blocked_attempts": total,
+        }
+
+defense = DefenseEngine()
+
 class SystemMonitor:
     def __init__(self):
         self.primary_up = True
@@ -128,9 +325,177 @@ class SystemMonitor:
         if len(self.honeypot_alerts) > 500:
             self.honeypot_alerts = self.honeypot_alerts[-500:]
         logger.warning(f"HONEYPOT ALERT: {alert}")
+        defense.observe(alert.get("source_ip"))
+        defense.assess_alert(alert)
 
 monitor = SystemMonitor()
 monitor.log_event("MONITOR_START", "Monitoring service started")
+
+# ============ DEFENSE SHIELD ============
+
+DEFENSE_CONFIG = {
+    "auto_ban_strikes": 3,     # honeypot strikes within window -> blacklist
+    "strike_window": 300,      # seconds
+    "ban_duration": 3600,      # first offence: 1 hour
+    "flood_threshold": 15,    # honeypot connections per minute -> blacklist
+}
+
+class DefenseShield:
+    """Heavy defensive layer: strike tracking, auto-ban engine, flood control,
+    escalating permanent bans, and a persistent IP blocklist. Banned IPs are
+    silently dropped by every honeypot handler."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.banned = {}
+        self.strikes = {}
+        self.flood = {}
+        self.blocked_attempts = {}
+        self.events = []
+        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS blocked_ips (
+                ip TEXT PRIMARY KEY,
+                reason TEXT,
+                strikes INTEGER,
+                banned_at TEXT,
+                expires_at REAL
+            )"""
+        )
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS ban_history (
+                ip TEXT PRIMARY KEY,
+                count INTEGER DEFAULT 0
+            )"""
+        )
+        self.conn.commit()
+        rows = self.conn.execute(
+            "SELECT ip, reason, strikes, banned_at, expires_at FROM blocked_ips"
+        ).fetchall()
+        for ip, reason, strikes, banned_at, expires_at in rows:
+            self.banned[ip] = {
+                "ip": ip, "reason": reason, "strikes": strikes,
+                "banned_at": banned_at, "expires_at": expires_at,
+                "permanent": expires_at is None,
+            }
+        if self.banned:
+            logger.info(f"Defense shield: loaded {len(self.banned)} banned IP(s) from blocklist")
+
+    def _event(self, etype, message):
+        self.events.append({"timestamp": datetime.now().isoformat(), "type": etype, "message": message})
+        if len(self.events) > 200:
+            self.events = self.events[-200:]
+
+    def is_banned(self, ip):
+        with self.lock:
+            info = self.banned.get(ip)
+            if not info:
+                return False
+            exp = info.get("expires_at")
+            if exp is not None and exp <= time.time():
+                del self.banned[ip]
+                self.conn.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
+                self.conn.commit()
+                self._event("BAN_EXPIRED", f"{ip} ban expired")
+                return False
+            return True
+
+    def ban(self, ip, reason, strikes=0):
+        now = time.time()
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO ban_history (ip, count) VALUES (?, 1) "
+                "ON CONFLICT(ip) DO UPDATE SET count = count + 1",
+                (ip,),
+            )
+            row = self.conn.execute("SELECT count FROM ban_history WHERE ip = ?", (ip,)).fetchone()
+            repeat = row[0] if row else 1
+            permanent = repeat >= 2
+            expires = None if permanent else now + DEFENSE_CONFIG["ban_duration"]
+            info = {
+                "ip": ip, "reason": reason, "strikes": strikes,
+                "banned_at": datetime.now().isoformat(), "expires_at": expires,
+                "permanent": permanent,
+            }
+            self.banned[ip] = info
+            self.conn.execute(
+                "INSERT OR REPLACE INTO blocked_ips (ip, reason, strikes, banned_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                (ip, reason, strikes, info["banned_at"], expires),
+            )
+            self.conn.commit()
+        self._event("BAN", f"{ip} blacklisted — {reason} ({'permanent' if permanent else '1 hour'})")
+        logger.warning(f"DEFENSE: {ip} blacklisted — {reason}")
+
+    def unban(self, ip):
+        with self.lock:
+            removed = ip in self.banned
+            if removed:
+                del self.banned[ip]
+                self.conn.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
+                self.conn.commit()
+        if removed:
+            self._event("UNBAN", f"{ip} removed from blocklist")
+        return removed
+
+    def record_block(self, ip):
+        with self.lock:
+            self.blocked_attempts[ip] = self.blocked_attempts.get(ip, 0) + 1
+
+    def record_strike(self, ip):
+        now = time.time()
+        with self.lock:
+            strikes = self.strikes.setdefault(ip, [])
+            strikes.append(now)
+            self.strikes[ip] = [t for t in strikes if t > now - DEFENSE_CONFIG["strike_window"]]
+            count = len(self.strikes[ip])
+        if count >= DEFENSE_CONFIG["auto_ban_strikes"]:
+            with self.lock:
+                self.strikes.pop(ip, None)
+            self.ban(ip, f"{count} honeypot strikes in {DEFENSE_CONFIG['strike_window'] // 60} min", count)
+
+    def record_connection(self, ip):
+        now = time.time()
+        with self.lock:
+            times = self.flood.setdefault(ip, [])
+            times.append(now)
+            self.flood[ip] = [t for t in times if t > now - 60]
+            count = len(self.flood[ip])
+        if count >= DEFENSE_CONFIG["flood_threshold"]:
+            with self.lock:
+                self.flood.pop(ip, None)
+            self.ban(ip, f"connection flood ({count}/min)", count)
+
+    def assess_alert(self, alert):
+        ip = alert.get("source_ip")
+        if not ip or ip.startswith("127.") or ip.startswith("::1"):
+            return
+        self.record_connection(ip)
+        self.record_strike(ip)
+
+    def to_dict(self):
+        with self.lock:
+            banned = [
+                {**info, "blocked_attempts": self.blocked_attempts.get(ip, 0)}
+                for ip, info in self.banned.items()
+            ]
+            events = list(self.events[-50:])
+            total_blocked = sum(self.blocked_attempts.values())
+        banned.sort(key=lambda b: b["banned_at"], reverse=True)
+        return {
+            "modules": [
+                {"name": "Auto-Ban Engine", "detail": f"{DEFENSE_CONFIG['auto_ban_strikes']} strikes / {DEFENSE_CONFIG['strike_window'] // 60} min → blacklist"},
+                {"name": "Flood Control", "detail": f"{DEFENSE_CONFIG['flood_threshold']} honeypot conns/min → blacklist"},
+                {"name": "IP Blacklist", "detail": f"{len(banned)} IP(s) blocked, persistent"},
+                {"name": "Escalation", "detail": "2nd offence = permanent ban"},
+                {"name": "Login Lockout", "detail": "3 failed logins / 10 min"},
+                {"name": "Decoy Shields", "detail": "4 honeypot ports dropping banned IPs"},
+            ],
+            "banned": banned,
+            "events": events,
+            "total_blocked_attempts": total_blocked,
+        }
+
+defense = DefenseShield()
 
 # ============ CONNECTIVITY MONITORING ============
 
@@ -283,6 +648,13 @@ class HoneypotManager:
 
 def ssh_handler(client, address, service):
     """SSH honeypot - captures SSH banners and initial packets."""
+    if defense.is_banned(address[0]):
+        defense.record_block(address[0])
+        try:
+            client.close()
+        except:
+            pass
+        return
     try:
         client.send(b"SSH-2.0-OpenSSH_7.4\r\n")
         monitor.add_honeypot_alert({
@@ -316,6 +688,13 @@ def ssh_handler(client, address, service):
 
 def http_handler(client, address, service):
     """HTTP honeypot - captures HTTP requests, serves a fake admin login page."""
+    if defense.is_banned(address[0]):
+        defense.record_block(address[0])
+        try:
+            client.close()
+        except:
+            pass
+        return
     try:
         client.settimeout(5)
         data = client.recv(4096)
@@ -352,6 +731,13 @@ def http_handler(client, address, service):
 
 def ftp_handler(client, address, service):
     """FTP honeypot - captures FTP usernames and passwords."""
+    if defense.is_banned(address[0]):
+        defense.record_block(address[0])
+        try:
+            client.close()
+        except:
+            pass
+        return
     try:
         client.send(b"220 FTP Server Ready\r\n")
         monitor.add_honeypot_alert({
@@ -409,6 +795,13 @@ def ftp_handler(client, address, service):
 
 def telnet_handler(client, address, service):
     """Telnet honeypot - captures telnet login attempts."""
+    if defense.is_banned(address[0]):
+        defense.record_block(address[0])
+        try:
+            client.close()
+        except:
+            pass
+        return
     try:
         monitor.add_honeypot_alert({
             "type": "TELNET_CONNECTION",
@@ -906,8 +1299,44 @@ AUTH_USERNAME = "comradeonboard"
 AUTH_PASSWORD_HASH = "783f8dd433cd2ea99d71123774474ef97067199ce9d67c36d31c953eeca5354a"
 MAX_LOGIN_FAILURES = 3
 LOGIN_LOCKOUT_SECONDS = 600
-sessions = set()
+sessions = {}  # token -> device_id
+host_last_touch = {}  # device_id -> epoch of last activity update (throttle)
 login_attempts = {}
+
+def parse_device(ua):
+    """Classify the device, OS and browser from a User-Agent string."""
+    ua_l = (ua or "").lower()
+    if "ipad" in ua_l or ("android" in ua_l and "mobile" not in ua_l):
+        device = "Tablet"
+    elif "iphone" in ua_l or ("android" in ua_l and "mobile" in ua_l) or "mobile" in ua_l:
+        device = "Phone"
+    else:
+        device = "Desktop / Laptop"
+    if "android" in ua_l:
+        os_name = "Android"
+    elif "linux" in ua_l:
+        os_name = "Linux"
+    elif "windows" in ua_l:
+        os_name = "Windows"
+    elif "iphone" in ua_l or "ipad" in ua_l:
+        os_name = "iOS"
+    elif "macintosh" in ua_l or "mac os" in ua_l:
+        os_name = "macOS"
+    else:
+        os_name = "Unknown OS"
+    if "edg/" in ua_l:
+        browser = "Edge"
+    elif "opr/" in ua_l or "opera" in ua_l:
+        browser = "Opera"
+    elif "chrome" in ua_l:
+        browser = "Chrome"
+    elif "firefox" in ua_l:
+        browser = "Firefox"
+    elif "safari" in ua_l:
+        browser = "Safari"
+    else:
+        browser = "Unknown Browser"
+    return device, os_name, browser
 
 def verify_password(password):
     return hashlib.sha256(password.encode()).hexdigest() == AUTH_PASSWORD_HASH
@@ -920,6 +1349,11 @@ async def auth_middleware(request: Request, call_next):
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if token in sessions:
+        device_id = sessions[token]
+        now = time.time()
+        if now - host_last_touch.get(device_id, 0) > 30:
+            host_last_touch[device_id] = now
+            host_store.touch(device_id)
         return await call_next(request)
     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
@@ -941,10 +1375,15 @@ async def login(request: Request):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if body.get("username") == AUTH_USERNAME and verify_password(str(body.get("password", ""))):
         token = secrets.token_urlsafe(32)
-        sessions.add(token)
+        device_id = str(body.get("device_id", ""))[:100] or f"anon-{secrets.token_hex(8)}"
+        device, os_name, browser = parse_device(request.headers.get("User-Agent", ""))
+        role = host_store.register(device_id, device, os_name, browser, client_ip)
+        sessions[token] = device_id
         login_attempts[client_ip] = {"failures": 0, "locked_until": 0.0}
-        logger.info(f"Console login successful for '{AUTH_USERNAME}'")
-        return {"ok": True, "token": token, "username": AUTH_USERNAME}
+        logger.info(
+            f"Console login from {os_name} {device} ({client_ip}) as '{AUTH_USERNAME}' — role: {role}"
+        )
+        return {"ok": True, "token": token, "username": AUTH_USERNAME, "role": role}
     attempt["failures"] += 1
     if attempt["failures"] >= MAX_LOGIN_FAILURES:
         attempt["failures"] = 0
@@ -963,8 +1402,12 @@ async def login(request: Request):
 async def logout(request: Request):
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
-    sessions.discard(token)
+    sessions.pop(token, None)
     return {"ok": True}
+
+@app.get("/api/auth/hosts")
+def get_hosts():
+    return {"hosts": host_store.to_list()}
 
 # ============ API ROUTES ============
 
@@ -1037,6 +1480,64 @@ async def scan_site(request: Request):
     web_scanner.start_scan(normalized)
     return {"ok": True, "target": normalized}
 
+@app.get("/api/defense/status")
+def get_defense_status():
+    return defense.to_dict()
+
+@app.post("/api/defense/ban")
+async def defense_ban(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ip = str(body.get("ip", "")).strip()[:45]
+    if not re.match(r"^[0-9a-fA-F.:]+$", ip or ""):
+        raise HTTPException(status_code=400, detail="Invalid IP")
+    defense.ban(ip, "Manually blacklisted by operator", permanent=True)
+    return defense.to_dict()
+
+@app.post("/api/defense/unban")
+async def defense_unban(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ip = str(body.get("ip", "")).strip()[:45]
+    defense.unban(ip)
+    return defense.to_dict()
+
+@app.get("/api/defense/status")
+def get_defense_status():
+    return defense.to_dict()
+
+@app.post("/api/defense/ban")
+async def manual_ban(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ip = str(body.get("ip", "")).strip()[:64]
+    if not ip or " " in ip:
+        raise HTTPException(status_code=400, detail="Invalid IP")
+    defense.ban(ip, str(body.get("reason", "manual block"))[:100])
+    return {"ok": True}
+
+@app.post("/api/defense/unban")
+async def manual_unban(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ip = str(body.get("ip", "")).strip()[:64]
+    return {"ok": defense.unban(ip)}
+
+@app.get("/api/defense/export")
+def export_blocklist():
+    lines = ["# FHM persistent blocklist — apply with: iptables -A INPUT -s <ip> -j DROP"]
+    with defense.lock:
+        lines.extend(sorted(defense.banned.keys()))
+    return PlainTextResponse("\n".join(lines) + "\n")
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -1062,6 +1563,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "honeypot_services": [s["service"].to_dict() for s in honeypot_manager.services.values()],
                 "attack_stats": compute_attack_stats(),
                 "network": network_scanner.to_dict(),
+                "defense": defense.to_dict(),
             }
             await websocket.send_json(data)
             await asyncio.sleep(2)

@@ -907,6 +907,79 @@ body {
   text-transform: uppercase;
 }
 
+/* Host console */
+.host-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--panel);
+  border-radius: 2px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.host-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.host-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.host-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.role-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.role-badge.main {
+  color: var(--green);
+  border-color: rgba(63, 185, 80, 0.4);
+  background: var(--green-dim);
+}
+
+.role-badge.secondary {
+  color: var(--blue);
+  border-color: rgba(88, 166, 255, 0.4);
+  background: var(--blue-dim);
+}
+
+.host-browser {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.host-ip {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+.host-date {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
 /* Web weak-point audit */
 .audit-form {
   display: flex;
@@ -1100,6 +1173,151 @@ body {
   font-size: 10px;
   color: var(--text-faint);
   margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* Defensive protocols */
+.defense-blocked-stat {
+  font-size: 9px;
+  color: var(--green);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  align-self: center;
+}
+
+.defense-modules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.defense-module {
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  padding: 10px 12px;
+  background: var(--panel-raised);
+}
+
+.defense-module-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.module-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  flex-shrink: 0;
+}
+
+.defense-module-detail {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 5px;
+}
+
+.scan-btn.danger {
+  color: var(--red);
+  border-color: rgba(248, 81, 73, 0.4);
+  background: var(--red-dim);
+}
+
+.scan-btn.danger:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.22);
+  border-color: var(--red);
+}
+
+.banned-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.banned-ip {
+  font-weight: 700;
+  color: var(--red);
+  min-width: 110px;
+}
+
+.banned-reason {
+  color: var(--text-dim);
+  flex: 1;
+  min-width: 140px;
+}
+
+.banned-exp {
+  color: var(--amber);
+  font-size: 10px;
+}
+
+.banned-exp.perm {
+  color: var(--red);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.banned-blocked {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.unban-btn {
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.unban-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.defense-events {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.defense-event {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+
+.defense-event-type {
+  color: var(--green);
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-right: 6px;
+}
+
+.empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 8px 0;
   letter-spacing: 0.5px;
 }
 

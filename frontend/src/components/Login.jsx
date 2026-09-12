@@ -7,6 +7,17 @@ export default function Login({ onSuccess }) {
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  const getDeviceId = () => {
+    let id = localStorage.getItem('fhm_device_id')
+    if (!id) {
+      id = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      localStorage.setItem('fhm_device_id', id)
+    }
+    return id
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (loading || success) return
@@ -16,7 +27,7 @@ export default function Login({ onSuccess }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, device_id: getDeviceId() }),
       })
       if (res.ok) {
         const data = await res.json()

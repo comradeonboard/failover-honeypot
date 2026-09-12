@@ -21,6 +21,8 @@ export function useMonitorData() {
   const [stats, setStats] = useState(null)
   const [network, setNetwork] = useState(null)
   const [securityScans, setSecurityScans] = useState([])
+  const [defense, setDefense] = useState(null)
+  const [hosts, setHosts] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -34,12 +36,14 @@ export function useMonitorData() {
         fetch('/api/honeypot/stats', { headers: authHeaders() }),
         fetch('/api/network/devices', { headers: authHeaders() }),
         fetch('/api/security/scans', { headers: authHeaders() }),
+        fetch('/api/defense/status', { headers: authHeaders() }),
+        fetch('/api/auth/hosts', { headers: authHeaders() }),
       ])
       if (responses.some((r) => r.status === 401)) {
         handleAuthFailure()
         return
       }
-      const [statusData, logData, alertsData, servicesData, statsData, networkData, securityData] =
+      const [statusData, logData, alertsData, servicesData, statsData, networkData, securityData, defenseData, hostsData] =
         await Promise.all(responses.map((r) => r.json()))
 
       setStatus(statusData)
@@ -50,6 +54,8 @@ export function useMonitorData() {
       setStats(statsData)
       setNetwork(networkData)
       setSecurityScans(securityData.scans || [])
+      setDefense(defenseData)
+      setHosts(hostsData.hosts || [])
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Fetch error:', err)
@@ -102,6 +108,32 @@ export function useMonitorData() {
     }
   }, [fetchAll])
 
+  const banIp = useCallback(async (ip) => {
+    try {
+      await fetch('/api/defense/ban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ ip }),
+      })
+      fetchAll()
+    } catch (err) {
+      console.error('Ban error:', err)
+    }
+  }, [fetchAll])
+
+  const unbanIp = useCallback(async (ip) => {
+    try {
+      await fetch('/api/defense/unban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ ip }),
+      })
+      fetchAll()
+    } catch (err) {
+      console.error('Unban error:', err)
+    }
+  }, [fetchAll])
+
   useEffect(() => {
     let ws = null
     let reconnectTimeout = null
@@ -128,6 +160,7 @@ export function useMonitorData() {
           if (data.honeypot_services) setServices(data.honeypot_services)
           if (data.attack_stats) setStats(data.attack_stats)
           if (data.network) setNetwork(data.network)
+          if (data.defense) setDefense(data.defense)
           setLastUpdated(new Date())
         } catch (err) {
           console.error('WS parse error:', err)
@@ -154,7 +187,8 @@ export function useMonitorData() {
   }, [])
 
   return {
-    status, events, alerts, totalAlerts, services, stats, network, securityScans,
+    status, events, alerts, totalAlerts, services, stats, network, securityScans, defense, hosts,
     wsConnected, lastUpdated, toggleService, clearAlerts, triggerScan, scanWebsite,
+    banIp, unbanIp,
   }
 }
