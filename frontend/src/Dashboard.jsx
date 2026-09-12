@@ -1,4 +1,6 @@
 import { useMonitorData } from './hooks/useMonitorData'
+import { useSecurityNotifications } from './hooks/useSecurityNotifications'
+import AlertToasts from './components/AlertToasts'
 import Header from './components/Header'
 import StatusSection from './components/StatusSection'
 import HostsPanel from './components/HostsPanel'
@@ -32,6 +34,11 @@ export default function Dashboard({ onLogout }) {
     unbanIp,
   } = useMonitorData()
 
+  const { permission, requestPermission, toasts, dismissToast } = useSecurityNotifications(
+    alerts,
+    defense
+  )
+
   return (
     <div className="app">
       <div className="container">
@@ -40,6 +47,18 @@ export default function Dashboard({ onLogout }) {
           <span>Security Monitoring System</span>
         </div>
         <Header wsConnected={wsConnected} onLogout={onLogout} />
+        {permission !== 'granted' && (
+          <div className="notify-bar">
+            <span>
+              Real-time intrusion notifications: {permission === 'denied' ? 'blocked by browser' : 'off'}
+            </span>
+            {permission !== 'denied' && (
+              <button className="notify-btn" onClick={requestPermission}>
+                Enable
+              </button>
+            )}
+          </div>
+        )}
         <StatusSection status={status} />
         <HostsPanel hosts={hosts} />
         <NetworkScan network={network} onScan={triggerScan} />
@@ -52,6 +71,7 @@ export default function Dashboard({ onLogout }) {
         <footer className="footer">
           <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
         </footer>
+        <AlertToasts toasts={toasts} onDismiss={dismissToast} />
       </div>
     </div>
   )

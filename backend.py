@@ -184,125 +184,6 @@ class HostStore:
 
 host_store = HostStore()
 
-# ============ DEFENSE ENGINE ============
-
-DEFENSE_AUTO_BAN_THRESHOLD = 25     # attacks in window before auto-quarantine
-DEFENSE_WINDOW_SECONDS = 300        # 5-minute sliding window
-DEFENSE_QUARANTINE_SECONDS = 600    # auto-quarantine duration
-
-class DefenseEngine:
-    """Defensive protocols: an IP blocklist enforced at every honeypot,
-    auto-quarantine for aggressive attackers, manual operator blacklist."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.banned = {}    # ip -> {"reason", "permanent", "expires_at", "blocked"}
-        self.events = []    # recent defense actions
-        self.activity = {}  # ip -> [alert epochs] within the sliding window
-        self.total_blocked_attempts = 0
-
-    def log(self, event_type, message):
-        self.events.append({
-            "type": event_type,
-            "message": message,
-            "timestamp": datetime.now().isoformat(),
-        })
-        if len(self.events) > 100:
-            self.events = self.events[-100:]
-        logger.warning(f"DEFENSE {event_type}: {message}")
-
-    def ban(self, ip, reason, permanent=False, duration=DEFENSE_QUARANTINE_SECONDS):
-        with self.lock:
-            self.banned[ip] = {
-                "reason": reason,
-                "permanent": permanent,
-                "expires_at": None if permanent else time.time() + duration,
-                "blocked": 0,
-            }
-            self.log("BLACKLIST" if permanent else "QUARANTINE", f"{ip} — {reason}")
-
-    def unban(self, ip):
-        with self.lock:
-            if ip in self.banned:
-                del self.banned[ip]
-                self.log("UNBAN", f"{ip} released from blocklist")
-
-    def is_banned(self, ip):
-        with self.lock:
-            entry = self.banned.get(ip)
-            if not entry:
-                return False
-            if entry["permanent"]:
-                return True
-            if time.time() > entry["expires_at"]:
-                del self.banned[ip]
-                return False
-            return True
-
-    def block_attempt(self, ip):
-        """Record a connection attempt that was dropped by the blocklist."""
-        with self.lock:
-            self.total_blocked_attempts += 1
-            entry = self.banned.get(ip)
-            if entry:
-                entry["blocked"] = entry.get("blocked", 0) + 1
-
-    def observe(self, ip):
-        """Track attacker activity; auto-quarantine aggressive sources."""
-        if not ip:
-            return
-        with self.lock:
-            now = time.time()
-            times = [t for t in self.activity.get(ip, []) if now - t < DEFENSE_WINDOW_SECONDS]
-            times.append(now)
-            self.activity[ip] = times
-            if len(times) >= DEFENSE_AUTO_BAN_THRESHOLD and ip not in self.banned:
-                self.banned[ip] = {
-                    "reason": f"Auto-quarantine: {len(times)} attacks in {DEFENSE_WINDOW_SECONDS // 60} min",
-                    "permanent": False,
-                    "expires_at": now + DEFENSE_QUARANTINE_SECONDS,
-                    "blocked": 0,
-                }
-                self.log(
-                    "AUTO_QUARANTINE",
-                    f"{ip} quarantined for {DEFENSE_QUARANTINE_SECONDS // 60} min after {len(times)} attacks",
-                )
-
-    def to_dict(self):
-        with self.lock:
-            now = time.time()
-            expired = [ip for ip, e in self.banned.items()
-                      if not e["permanent"] and now > e["expires_at"]]
-            for ip in expired:
-                del self.banned[ip]
-                self.log("QUARANTINE_LIFTED", f"{ip} quarantine expired — released")
-            banned = [
-                {
-                    "ip": ip,
-                    "reason": e["reason"],
-                    "permanent": e["permanent"],
-                    "expires_at": int(e["expires_at"]) if e["expires_at"] else None,
-                    "blocked_attempts": e.get("blocked", 0),
-                }
-                for ip, e in self.banned.items()
-            ]
-            events = self.events[-30:]
-            total = self.total_blocked_attempts
-        return {
-            "modules": [
-                {"name": "TCP Connection Guard",
-                 "detail": "Connections from blacklisted IPs are dropped at every honeypot"},
-                {"name": "Aggressive Attacker Quarantine",
-                 "detail": f"Sources reaching {DEFENSE_AUTO_BAN_THRESHOLD} attacks in {DEFENSE_WINDOW_SECONDS // 60} min are auto-quarantined for {DEFENSE_QUARANTINE_SECONDS // 60} min"},
-                {"name": "Manual Blacklist",
-                 "detail": "Operator can permanently blacklist any IP from the console"},
-            ],
-            "banned": banned,
-            "events": events,
-            "total_blocked_attempts": total,
-        }
-
-defense = DefenseEngine()
 
 class SystemMonitor:
     def __init__(self):
@@ -325,7 +206,6 @@ class SystemMonitor:
         if len(self.honeypot_alerts) > 500:
             self.honeypot_alerts = self.honeypot_alerts[-500:]
         logger.warning(f"HONEYPOT ALERT: {alert}")
-        defense.observe(alert.get("source_ip"))
         defense.assess_alert(alert)
 
 monitor = SystemMonitor()
@@ -1480,31 +1360,7 @@ async def scan_site(request: Request):
     web_scanner.start_scan(normalized)
     return {"ok": True, "target": normalized}
 
-@app.get("/api/defense/status")
-def get_defense_status():
-    return defense.to_dict()
 
-@app.post("/api/defense/ban")
-async def defense_ban(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    ip = str(body.get("ip", "")).strip()[:45]
-    if not re.match(r"^[0-9a-fA-F.:]+$", ip or ""):
-        raise HTTPException(status_code=400, detail="Invalid IP")
-    defense.ban(ip, "Manually blacklisted by operator", permanent=True)
-    return defense.to_dict()
-
-@app.post("/api/defense/unban")
-async def defense_unban(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    ip = str(body.get("ip", "")).strip()[:45]
-    defense.unban(ip)
-    return defense.to_dict()
 
 @app.get("/api/defense/status")
 def get_defense_status():
