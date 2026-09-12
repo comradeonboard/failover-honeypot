@@ -1228,37 +1228,48 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 170px;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
+  min-width: 180px;
+  background: var(--panel-raised);
+  border: 1px solid var(--blue);
   border-radius: 2px;
-  padding: 6px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   z-index: 100;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.nav-dropdown::before {
+  content: 'SECTIONS';
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-faint);
+  padding: 2px 12px 6px;
+  text-transform: uppercase;
 }
 
 .nav-dropdown-item {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 2px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .nav-dropdown-item:hover {
-  color: var(--text);
-  background: var(--panel);
+  color: var(--green);
+  background: var(--green-dim);
 }
 
 .nav-dropdown-item.active {
