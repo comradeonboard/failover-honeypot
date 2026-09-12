@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { sfx } from '../lib/sfx'
 
 export default function Login({ onSuccess }) {
   const [username, setUsername] = useState('')
@@ -23,6 +24,7 @@ export default function Login({ onSuccess }) {
     if (loading || success) return
     setLoading(true)
     setError('')
+    sfx.process()
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -32,6 +34,7 @@ export default function Login({ onSuccess }) {
       if (res.ok) {
         const data = await res.json()
         localStorage.setItem('fhm_token', data.token)
+        sfx.login()
         setSuccess(true)
         setTimeout(onSuccess, 1200)
       } else if (res.status === 429) {
@@ -41,8 +44,10 @@ export default function Login({ onSuccess }) {
       } else {
         setError('Access denied // Invalid credentials')
       }
+      sfx.error()
     } catch {
       setError('Connection error // Retry')
+      sfx.error()
     } finally {
       setLoading(false)
     }

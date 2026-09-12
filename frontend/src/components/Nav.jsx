@@ -1,3 +1,5 @@
+import { sfx } from '../lib/sfx'
+
 const NAV_ITEMS = [
   { key: 'overview', label: 'Overview' },
   { key: 'network', label: 'Network Scan' },
@@ -15,7 +17,10 @@ export default function Nav({ current, onNavigate }) {
         <button
           key={item.key}
           className={`nav-item ${current === item.key ? 'active' : ''}`}
-          onClick={() => onNavigate(item.key)}
+          onClick={() => {
+            sfx.click()
+            onNavigate(item.key)
+          }}
         >
           {item.label}
         </button>
