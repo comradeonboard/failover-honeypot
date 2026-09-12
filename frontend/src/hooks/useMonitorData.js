@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { sfx } from '../lib/sfx'
 
 const TOKEN_KEY = 'fhm_token'
 
@@ -73,7 +72,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const toggleService = useCallback(async (name) => {
-    sfx.process()
     try {
       await fetch(`/api/honeypot/toggle/${name}`, { method: 'POST', headers: authHeaders() })
       fetchAll()
@@ -83,7 +81,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const clearAlerts = useCallback(async () => {
-    sfx.process()
     try {
       await fetch('/api/honeypot/clear', { method: 'POST', headers: authHeaders() })
       fetchAll()
@@ -93,7 +90,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const triggerScan = useCallback(async () => {
-    sfx.process()
     try {
       await fetch('/api/network/scan', { method: 'POST', headers: authHeaders() })
       fetchAll()
@@ -103,7 +99,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const scanWebsite = useCallback(async (target) => {
-    sfx.process()
     try {
       await fetch('/api/security/scan', {
         method: 'POST',
@@ -117,7 +112,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const banIp = useCallback(async (ip) => {
-    sfx.process()
     try {
       await fetch('/api/defense/ban', {
         method: 'POST',
@@ -131,7 +125,6 @@ export function useMonitorData() {
   }, [fetchAll])
 
   const unbanIp = useCallback(async (ip) => {
-    sfx.process()
     try {
       await fetch('/api/defense/unban', {
         method: 'POST',

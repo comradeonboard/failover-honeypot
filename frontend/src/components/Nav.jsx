@@ -1,4 +1,3 @@
-import { sfx } from '../lib/sfx'
 
 const NAV_ITEMS = [
   { key: 'overview', label: 'Overview' },
@@ -18,7 +17,6 @@ export default function Nav({ current, onNavigate }) {
           key={item.key}
           className={`nav-item ${current === item.key ? 'active' : ''}`}
           onClick={() => {
-            sfx.click()
             onNavigate(item.key)
           }}
         >

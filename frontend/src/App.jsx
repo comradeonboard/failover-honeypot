@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import Login from './components/Login'
 import Dashboard from './Dashboard'
-import { sfx } from './lib/sfx'
 
 const TOKEN_KEY = 'fhm_token'
 
@@ -15,7 +14,6 @@ export default function App() {
   }, [])
 
   const handleLogout = () => {
-    sfx.logout()
     const token = localStorage.getItem(TOKEN_KEY)
     localStorage.removeItem(TOKEN_KEY)
     if (token) {
