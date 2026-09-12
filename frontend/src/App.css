@@ -1023,6 +1023,19 @@ body {
   text-transform: uppercase;
 }
 
+.login-success {
+  margin-top: 16px;
+  padding: 9px 12px;
+  background: var(--green-dim);
+  border: 1px solid rgba(63, 185, 80, 0.35);
+  border-radius: 2px;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
 .login-btn {
   width: 100%;
   margin-top: 20px;

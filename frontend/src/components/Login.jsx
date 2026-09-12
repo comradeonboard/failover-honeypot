@@ -4,10 +4,12 @@ export default function Login({ onSuccess }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (loading || success) return
     setLoading(true)
     setError('')
     try {
@@ -19,7 +21,12 @@ export default function Login({ onSuccess }) {
       if (res.ok) {
         const data = await res.json()
         localStorage.setItem('fhm_token', data.token)
-        onSuccess()
+        setSuccess(true)
+        setTimeout(onSuccess, 1200)
+      } else if (res.status === 429) {
+        const data = await res.json().catch(() => null)
+        const minutes = Math.max(1, Math.ceil((data?.detail?.retry_after || 600) / 60))
+        setError(`Access locked // Try again in ${minutes} minute${minutes === 1 ? '' : 's'}`)
       } else {
         setError('Access denied // Invalid credentials')
       }
@@ -63,8 +70,9 @@ export default function Login({ onSuccess }) {
             autoComplete="current-password"
           />
           {error && <div className="login-error">{error}</div>}
-          <button className="login-btn" type="submit" disabled={loading || !username || !password}>
-            {loading ? 'Authenticating' : 'Authenticate'}
+          {success && <div className="login-success">Access granted // Welcome {username}</div>}
+          <button className="login-btn" type="submit" disabled={loading || success || !username || !password}>
+            {success ? 'Access Granted' : loading ? 'Authenticating' : 'Authenticate'}
           </button>
         </form>
       </div>

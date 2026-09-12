@@ -702,7 +702,10 @@ def compute_attack_stats():
 
 AUTH_USERNAME = "comradeonboard"
 AUTH_PASSWORD_HASH = "783f8dd433cd2ea99d71123774474ef97067199ce9d67c36d31c953eeca5354a"
+MAX_LOGIN_FAILURES = 3
+LOGIN_LOCKOUT_SECONDS = 600
 sessions = set()
+login_attempts = {}
 
 def verify_password(password):
     return hashlib.sha256(password.encode()).hexdigest() == AUTH_PASSWORD_HASH
@@ -720,6 +723,16 @@ async def auth_middleware(request: Request, call_next):
 
 @app.post("/api/auth/login")
 async def login(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempt = login_attempts.get(client_ip, {"failures": 0, "locked_until": 0.0})
+    if attempt["locked_until"] > now:
+        retry_after = int(attempt["locked_until"] - now)
+        logger.warning(f"Login blocked for '{client_ip}' — locked, {retry_after}s remaining")
+        raise HTTPException(
+            status_code=429,
+            detail={"locked": True, "retry_after": retry_after},
+        )
     try:
         body = await request.json()
     except Exception:
@@ -727,8 +740,20 @@ async def login(request: Request):
     if body.get("username") == AUTH_USERNAME and verify_password(str(body.get("password", ""))):
         token = secrets.token_urlsafe(32)
         sessions.add(token)
+        login_attempts[client_ip] = {"failures": 0, "locked_until": 0.0}
         logger.info(f"Console login successful for '{AUTH_USERNAME}'")
         return {"ok": True, "token": token, "username": AUTH_USERNAME}
+    attempt["failures"] += 1
+    if attempt["failures"] >= MAX_LOGIN_FAILURES:
+        attempt["failures"] = 0
+        attempt["locked_until"] = now + LOGIN_LOCKOUT_SECONDS
+        login_attempts[client_ip] = attempt
+        logger.warning(f"Login locked for '{client_ip}' after {MAX_LOGIN_FAILURES} failed attempts")
+        raise HTTPException(
+            status_code=429,
+            detail={"locked": True, "retry_after": LOGIN_LOCKOUT_SECONDS},
+        )
+    login_attempts[client_ip] = attempt
     logger.warning(f"Failed console login attempt for '{str(body.get('username', ''))[:50]}'")
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
