@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend.py:/app/backend.py
+      - ./frontend/dist:/app/frontend/dist
       - backend_data:/app/data
     ports:
       - "8000:8000"
