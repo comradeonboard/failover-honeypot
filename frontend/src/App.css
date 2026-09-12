@@ -137,40 +137,73 @@ body {
   50% { opacity: 0.35; }
 }
 
-/* Navigation bar */
-.nav-bar {
+/* Sidebar navigation */
+.layout {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  background: var(--panel-raised);
-  border-bottom: 1px solid var(--border-strong);
-  padding: 0 20px;
-  overflow-x: auto;
+  align-items: stretch;
 }
 
-.nav-item {
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: var(--panel-raised);
+  border-right: 1px solid var(--border-strong);
+  padding: 18px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  padding: 0 12px 10px;
+}
+
+.sidebar-item {
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
+  text-align: left;
   color: var(--text-faint);
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  padding: 14px 18px;
+  border-left: 2px solid transparent;
+  border-radius: 0 2px 2px 0;
+  padding: 10px 12px;
   cursor: pointer;
-  transition: color 0.2s ease, border-color 0.2s ease;
   white-space: nowrap;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
-.nav-item:hover {
+.sidebar-item:hover {
   color: var(--text-dim);
+  background: var(--panel);
 }
 
-.nav-item.active {
+.sidebar-item.active {
   color: var(--blue);
-  border-bottom-color: var(--blue);
+  border-left-color: var(--blue);
+  background: var(--blue-dim);
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mobile menu toggle (hidden on desktop) */
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 /* Sections */
@@ -1212,71 +1245,6 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* Nav "More" dropdown menu */
-.nav-menu {
-  position: relative;
-  display: inline-block;
-}
-
-.nav-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.nav-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 180px;
-  background: var(--panel-raised);
-  border: 1px solid var(--blue);
-  border-radius: 2px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 100;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-}
-
-.nav-dropdown::before {
-  content: 'SECTIONS';
-  display: block;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: var(--text-faint);
-  padding: 2px 12px 6px;
-  text-transform: uppercase;
-}
-
-.nav-dropdown-item {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  padding: 9px 12px;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.nav-dropdown-item:hover {
-  color: var(--green);
-  background: var(--green-dim);
-}
-
-.nav-dropdown-item.active {
-  color: var(--green);
-  border-color: var(--green);
-}
-
 /* SSL tracking */
 .ssl-add-form {
   display: flex;
@@ -2015,7 +1983,69 @@ body {
 
 /* Responsive */
 @media (max-width: 768px) {
-  body { padding: 10px; }
+  body { padding: 0; }
+
+  .container {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  /* Mobile: sidebar becomes a slide-in overlay menu */
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: var(--panel-raised);
+    border: none;
+    border-bottom: 1px solid var(--border-strong);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 13px 20px;
+    cursor: pointer;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 150;
+  }
+
+  .sidebar-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 220px;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    overflow-y: auto;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
+    padding-top: 24px;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .classification {
+    padding: 6px 14px;
 
   .classification {
     padding: 6px 14px;

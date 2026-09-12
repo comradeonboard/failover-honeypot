@@ -1,9 +1,10 @@
+import { useState } from 'react'
 import { useMonitorData } from './hooks/useMonitorData'
 import { useSecurityNotifications } from './hooks/useSecurityNotifications'
 import { useHashRoute } from './hooks/useHashRoute'
 import AlertToasts from './components/AlertToasts'
 import Header from './components/Header'
-import Nav from './components/Nav'
+import Sidebar from './components/Sidebar'
 import OverviewPage from './pages/OverviewPage'
 import NetworkScanPage from './pages/NetworkScanPage'
 import SecurityAuditPage from './pages/SecurityAuditPage'
@@ -44,6 +45,12 @@ export default function Dashboard({ onLogout }) {
   )
 
   const [route, navigate] = useHashRoute()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const goToSection = (key) => {
+    setSidebarOpen(false)
+    navigate(key)
+  }
 
   const renderPage = () => {
     switch (route) {
@@ -86,23 +93,35 @@ export default function Dashboard({ onLogout }) {
           <span>Security Monitoring System</span>
         </div>
         <Header wsConnected={wsConnected} onLogout={onLogout} />
-        <Nav current={route} onNavigate={navigate} />
-        {permission !== 'granted' && (
-          <div className="notify-bar">
-            <span>
-              Real-time intrusion notifications: {permission === 'denied' ? 'blocked by browser' : 'off'}
-            </span>
-            {permission !== 'denied' && (
-              <button className="notify-btn" onClick={requestPermission}>
-                Enable
-              </button>
+        <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)}>
+          ☰ Menu
+        </button>
+        <div className="layout">
+          <Sidebar
+            current={route}
+            onNavigate={goToSection}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+          <div className="main-content">
+            {permission !== 'granted' && (
+              <div className="notify-bar">
+                <span>
+                  Real-time intrusion notifications: {permission === 'denied' ? 'blocked by browser' : 'off'}
+                </span>
+                {permission !== 'denied' && (
+                  <button className="notify-btn" onClick={requestPermission}>
+                    Enable
+                  </button>
+                )}
+              </div>
             )}
+            {renderPage()}
+            <footer className="footer">
+              <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
+            </footer>
           </div>
-        )}
-        {renderPage()}
-        <footer className="footer">
-          <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
-        </footer>
+        </div>
         <AlertToasts toasts={toasts} onDismiss={dismissToast} />
       </div>
     </div>
