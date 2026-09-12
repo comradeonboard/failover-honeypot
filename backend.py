@@ -46,6 +46,57 @@ monitor = SystemMonitor()
 def check_primary_connection():
     try:
         result = subprocess.run(["ping", "-c", "1", "8.8.8.8"], timeout=5, capture_output=True)
+        return result.returncode ==
+cd ~/failover-honeypot
+cat > backend.py << 'FINALEOF'
+import subprocess
+import time
+import threading
+from datetime import datetime
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+import socket
+import psutil
+import logging
+import asyncio
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class SystemMonitor:
+    def __init__(self):
+        self.primary_up = True
+        self.backup_up = False
+        self.active_connection = "primary"
+        self.uptime_log = []
+        self.honeypot_alerts = []
+        
+    def log_event(self, event_type, details):
+        timestamp = datetime.now().isoformat()
+        event = {"timestamp": timestamp, "type": event_type, "details": details}
+        self.uptime_log.append(event)
+        logger.info(f"{event_type}: {details}")
+        
+    def add_honeypot_alert(self, alert):
+        alert["timestamp"] = datetime.now().isoformat()
+        self.honeypot_alerts.append(alert)
+        logger.warning(f"HONEYPOT ALERT: {alert}")
+
+monitor = SystemMonitor()
+
+def check_primary_connection():
+    try:
+        result = subprocess.run(["ping", "-c", "1", "8.8.8.8"], timeout=5, capture_output=True)
         return result.returncode == 0
     except Exception as e:
         logger.error(f"Primary check error: {e}")
@@ -128,6 +179,10 @@ def start_ssh_honeypot():
     honeypot_thread.start()
 
 start_ssh_honeypot()
+
+@app.get("/")
+def root():
+    return {"message": "Failover & Honeypot Monitor API", "endpoints": ["/api/status", "/api/uptime-log", "/api/honeypot-alerts", "/health"]}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
