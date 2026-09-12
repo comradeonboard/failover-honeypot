@@ -22,6 +22,7 @@ export default function Dashboard({ onLogout }) {
     stats,
     network,
     securityScans,
+    securityHistory,
     defense,
     hosts,
     wsConnected,
@@ -46,7 +47,7 @@ export default function Dashboard({ onLogout }) {
       case 'network':
         return <NetworkScanPage network={network} onScan={triggerScan} />
       case 'audit':
-        return <SecurityAuditPage scans={securityScans} onScan={scanWebsite} />
+        return <SecurityAuditPage scans={securityScans} history={securityHistory} onScan={scanWebsite} />
       case 'defense':
         return <DefensePage defense={defense} onBan={banIp} onUnban={unbanIp} />
       case 'honeypot':

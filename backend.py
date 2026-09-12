@@ -10,6 +10,7 @@ import secrets
 import urllib.request
 import urllib.error
 import re
+import json
 from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
@@ -1026,6 +1027,44 @@ class WebSecurityScanner:
     def __init__(self):
         self.scans = {}
         self.lock = threading.Lock()
+        try:
+            self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        except Exception:
+            self.conn = sqlite3.connect("honeypot.db", check_same_thread=False)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS scan_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT,
+                status TEXT,
+                grade TEXT,
+                score INTEGER,
+                findings_count INTEGER,
+                scanned_at TEXT,
+                findings TEXT
+            )"""
+        )
+        self.conn.commit()
+
+    def _record(self, entry):
+        """Persist a finished audit to the scan_history table."""
+        try:
+            findings = entry.get("findings", [])
+            self.conn.execute(
+                "INSERT INTO scan_history (target, status, grade, score, findings_count, scanned_at, findings) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.get("target"),
+                    entry.get("status"),
+                    entry.get("grade"),
+                    entry.get("score"),
+                    len(findings),
+                    entry.get("scanned_at"),
+                    json.dumps(findings),
+                ),
+            )
+            self.conn.commit()
+        except Exception as err:
+            logger.error(f"Failed to persist scan history: {err}")
 
     def normalize(self, target):
         target = (target or "").strip()[:200]
@@ -1062,13 +1101,15 @@ class WebSecurityScanner:
 
         status, headers, cookies, body = self.fetch(target)
         if status is None:
+            entry = {
+                "target": target,
+                "status": "error",
+                "findings": [],
+                "scanned_at": datetime.now().isoformat(),
+            }
             with self.lock:
-                self.scans[target] = {
-                    "target": target,
-                    "status": "error",
-                    "findings": [],
-                    "scanned_at": datetime.now().isoformat(),
-                }
+                self.scans[target] = entry
+            self._record(entry)
             return
 
         if not target.startswith("https://"):
@@ -1144,15 +1185,17 @@ class WebSecurityScanner:
 
         score = max(0, 100 - sum(SEVERITY_PENALTY.get(f["severity"], 0) for f in findings))
         grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        entry = {
+            "target": target,
+            "status": "complete",
+            "score": score,
+            "grade": grade,
+            "findings": findings,
+            "scanned_at": datetime.now().isoformat(),
+        }
         with self.lock:
-            self.scans[target] = {
-                "target": target,
-                "status": "complete",
-                "score": score,
-                "grade": grade,
-                "findings": findings,
-                "scanned_at": datetime.now().isoformat(),
-            }
+            self.scans[target] = entry
+        self._record(entry)
         logger.info(f"Web security audit of {target}: grade {grade} ({score}/100), {len(findings)} findings")
 
     def start_scan(self, target):
@@ -1171,6 +1214,29 @@ class WebSecurityScanner:
         with self.lock:
             scans = sorted(self.scans.values(), key=lambda s: s["scanned_at"], reverse=True)
         return {"scans": scans[:20]}
+
+    def history(self, limit=100):
+        """Past audits, most recent first, persisted across restarts."""
+        rows = self.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history ORDER BY scanned_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return {
+            "history": [
+                {
+                    "id": r[0],
+                    "target": r[1],
+                    "status": r[2],
+                    "grade": r[3],
+                    "score": r[4],
+                    "findings_count": r[5],
+                    "scanned_at": r[6],
+                    "findings": json.loads(r[7]) if r[7] else [],
+                }
+                for r in rows
+            ]
+        }
 
 web_scanner = WebSecurityScanner()
 
@@ -1352,6 +1418,10 @@ def trigger_network_scan():
 @app.get("/api/security/scans")
 def get_security_scans():
     return web_scanner.to_dict()
+
+@app.get("/api/security/history")
+def get_security_history():
+    return web_scanner.history()
 
 @app.post("/api/security/scan")
 async def scan_site(request: Request):
