@@ -6,21 +6,21 @@ export default function StatusSection({ status }) {
       <h2>Connection Status</h2>
       <div className="status-grid">
         <div className={`status-card ${primary_up ? 'up' : 'down'}`}>
-          <div className="status-icon">{primary_up ? '✓' : '✗'}</div>
-          <h3>Primary Connection</h3>
-          <p>{primary_up ? 'Online' : 'Offline'}</p>
+          <div className="card-label">Primary Uplink</div>
+          <div className="status-value">{primary_up ? 'ONLINE' : 'OFFLINE'}</div>
+          <div className="card-sub">Target: 8.8.8.8 // interval 5s</div>
         </div>
 
         <div className={`status-card ${backup_up ? 'up' : 'down'}`}>
-          <div className="status-icon">{backup_up ? '✓' : '✗'}</div>
-          <h3>Backup (Hotspot)</h3>
-          <p>{backup_up ? 'Available' : 'Unavailable'}</p>
+          <div className="card-label">Backup Hotspot</div>
+          <div className="status-value">{backup_up ? 'STANDBY' : 'NO LINK'}</div>
+          <div className="card-sub">Failover interface</div>
         </div>
 
-        <div className={`status-card active ${active === 'primary' ? 'primary-active' : 'backup-active'}`}>
-          <div className="active-label">Active Connection</div>
-          <h3>{active ? active.toUpperCase() : '--'}</h3>
-          <p>Using {active} network</p>
+        <div className="status-card active">
+          <div className="card-label">Active Route</div>
+          <div className="status-value">{active ? active.toUpperCase() : '--'}</div>
+          <div className="card-sub">{active === 'primary' ? 'Primary network in use' : 'Backup network in use'}</div>
         </div>
       </div>
     </section>

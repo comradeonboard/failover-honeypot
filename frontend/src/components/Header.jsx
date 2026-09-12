@@ -1,10 +1,13 @@
 export default function Header({ wsConnected }) {
   return (
     <header className="header">
-      <h1>🔒 Failover &amp; Honeypot Monitor</h1>
-      <div className="ws-indicator">
-        <span className={`ws-dot ${wsConnected ? 'connected' : 'disconnected'}`} />
-        <span>{wsConnected ? 'Live' : 'Connecting...'}</span>
+      <div>
+        <div className="header-tag">Network Intelligence // FHM-01</div>
+        <h1>Failover &amp; Honeypot Monitor</h1>
+      </div>
+      <div className={`ws-indicator ${wsConnected ? 'online' : 'offline'}`}>
+        <span className="ws-dot" />
+        <span>{wsConnected ? 'Link Active' : 'Link Down'}</span>
       </div>
     </header>
   )

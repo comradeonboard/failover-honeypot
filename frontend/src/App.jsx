@@ -10,12 +10,16 @@ export default function App() {
   return (
     <div className="app">
       <div className="container">
+        <div className="classification">
+          <span>FHM // OPS-CONSOLE</span>
+          <span>Security Monitoring System</span>
+        </div>
         <Header wsConnected={wsConnected} />
         <StatusSection status={status} />
         <UptimeLog events={events} />
         <HoneypotAlerts alerts={alerts} totalAlerts={totalAlerts} />
         <footer className="footer">
-          <p>Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
+          <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
         </footer>
       </div>
     </div>
