@@ -1212,6 +1212,241 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* SSL tracking */
+.ssl-add-form {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0;
+  max-width: 480px;
+}
+
+.ssl-input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  color: var(--text);
+  outline: none;
+}
+
+.ssl-input:focus {
+  border-color: var(--green);
+}
+
+.ssl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ssl-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.ssl-host { font-weight: 700; color: var(--text); word-break: break-all; }
+.ssl-issuer, .ssl-expires { color: var(--text-dim); }
+
+.ssl-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.ssl-badge.valid { color: var(--green); background: var(--green-dim, rgba(74, 222, 128, 0.1)); }
+.ssl-badge.expiring { color: var(--amber); background: var(--amber-dim, rgba(245, 158, 11, 0.1)); }
+.ssl-badge.critical, .ssl-badge.expired { color: var(--red); background: var(--red-dim); }
+.ssl-badge.error, .ssl-badge.pending { color: var(--text-dim); background: var(--panel); border: 1px solid var(--border-strong); }
+
+.ssl-remove {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.ssl-remove:hover { color: var(--red); border-color: rgba(248, 81, 73, 0.4); }
+
+/* Device inventory + alerts */
+.device-alert-list, .inventory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.device-alert-row, .inventory-row {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.device-alert-row {
+  grid-template-columns: auto auto 1fr auto auto auto;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.inventory-row {
+  grid-template-columns: auto 1fr 1fr auto auto;
+}
+
+.alert-new-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 3px 7px;
+  border-radius: 2px;
+  color: var(--amber);
+  background: var(--amber-dim, rgba(245, 158, 11, 0.1));
+}
+
+/* Uptime report */
+.range-tabs { display: flex; gap: 6px; flex-shrink: 0; }
+
+.range-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.range-tab.active {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 14px;
+}
+
+.card-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.report-chart { margin-top: 20px; }
+
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 160px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow-x: auto;
+}
+
+.chart-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 100%;
+}
+
+.chart-stack {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: calc(100% - 18px);
+  width: 100%;
+}
+
+.chart-bar {
+  flex: 1;
+  min-width: 8px;
+  border-radius: 1px 1px 0 0;
+  min-height: 2px;
+}
+
+.chart-bar.primary { background: var(--green); opacity: 0.9; }
+.chart-bar.backup { background: var(--amber); opacity: 0.8; }
+
+.chart-date {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chart-legend span { display: flex; align-items: center; gap: 6px; }
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-dot.primary { background: var(--green); }
+.legend-dot.backup { background: var(--amber); }
+
 /* Audit history */
 .history-head {
   display: flex;

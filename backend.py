@@ -215,6 +215,10 @@ class SystemMonitor:
 monitor = SystemMonitor()
 monitor.log_event("MONITOR_START", "Monitoring service started")
 
+# ============ TRACKING STORES (SSL expiry / device inventory / uptime samples) ============
+
+from tracking import ssl_store, device_store, uptime_store
+
 # ============ DEFENSE SHIELD ============
 
 DEFENSE_CONFIG = {
@@ -418,6 +422,7 @@ def monitor_connections():
             monitor.backup_up = backup
             status = "available" if backup else "unavailable"
             monitor.log_event("BACKUP_STATUS", status)
+        uptime_store.record(primary, backup)
         time.sleep(5)
 
 monitor_thread = threading.Thread(target=monitor_connections, daemon=True)
@@ -927,6 +932,7 @@ class NetworkScanner:
                 if ip not in responded:
                     device["status"] = "offline"
             self.last_scan = datetime.now().isoformat()
+            device_store.sync(self.devices)
             logger.info(f"Network scan complete: {len(responded)} hosts up on {self.subnet}")
         except Exception as e:
             logger.error(f"Network scan error: {e}")
@@ -1416,6 +1422,38 @@ def get_network_devices():
 def trigger_network_scan():
     network_scanner.start_scan_async()
     return {"ok": True, "scanning": True}
+
+@app.get("/api/ssl")
+def get_ssl_targets():
+    return ssl_store.list()
+
+@app.post("/api/ssl")
+async def add_ssl_target(request: Request):
+    body = await request.json()
+    result = ssl_store.add(body.get("host") or "")
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return ssl_store.list()
+
+@app.delete("/api/ssl/{target_id}")
+def delete_ssl_target(target_id: int):
+    return ssl_store.remove(target_id)
+
+@app.get("/api/devices/inventory")
+def get_device_inventory():
+    return device_store.list()
+
+@app.post("/api/devices/alerts/{alert_id}/ack")
+def ack_device_alert(alert_id: int):
+    return device_store.ack(alert_id)
+
+@app.post("/api/devices/alerts/ack-all")
+def ack_all_device_alerts():
+    return device_store.ack_all()
+
+@app.get("/api/uptime/report")
+def get_uptime_report(days: int = 30):
+    return uptime_store.report(max(1, min(days, 365)))
 
 @app.get("/api/security/scans")
 def get_security_scans():

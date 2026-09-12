@@ -7,6 +7,9 @@ const NAV_ITEMS = [
   { key: 'honeypot', label: 'Honeypot' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'uptime', label: 'Uptime Log' },
+  { key: 'ssl', label: 'SSL Certs' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'reports', label: 'Reports' },
 ]
 
 export default function Nav({ current, onNavigate }) {

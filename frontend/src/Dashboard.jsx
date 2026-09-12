@@ -11,6 +11,9 @@ import DefensePage from './pages/DefensePage'
 import HoneypotPage from './pages/HoneypotPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import UptimeLogPage from './pages/UptimeLogPage'
+import SslPage from './pages/SslPage'
+import InventoryPage from './pages/InventoryPage'
+import ReportsPage from './pages/ReportsPage'
 
 export default function Dashboard({ onLogout }) {
   const {
@@ -64,6 +67,12 @@ export default function Dashboard({ onLogout }) {
         return <AnalyticsPage stats={stats} />
       case 'uptime':
         return <UptimeLogPage events={events} />
+      case 'ssl':
+        return <SslPage />
+      case 'inventory':
+        return <InventoryPage />
+      case 'reports':
+        return <ReportsPage />
       default:
         return <OverviewPage status={status} hosts={hosts} />
     }
