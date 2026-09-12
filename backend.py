@@ -11,10 +11,12 @@ import urllib.request
 import urllib.error
 import re
 import json
+import csv
+import io
 from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
@@ -1422,6 +1424,55 @@ def get_security_scans():
 @app.get("/api/security/history")
 def get_security_history():
     return web_scanner.history()
+
+@app.get("/api/security/export")
+def export_security_history(scan_id: int = None, target: str = None):
+    """Export one audit (scan_id), one site's audits (target), or everything
+    as an Excel-compatible CSV spreadsheet — one row per finding."""
+    if scan_id:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history WHERE id = ?", (scan_id,),
+        ).fetchall()
+    elif target:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history WHERE target = ? ORDER BY scanned_at DESC", (target,),
+        ).fetchall()
+    else:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history ORDER BY scanned_at DESC, id DESC"
+        ).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Scan ID", "Date", "Target", "Status", "Grade", "Score",
+        "Finding Severity", "Finding", "Detail", "Recommended Fix",
+    ])
+    for r in rows:
+        base = [r[0], r[6], r[1], r[2], r[3], r[4]]
+        findings = json.loads(r[7]) if r[7] else []
+        if findings:
+            for f in findings:
+                writer.writerow(base + [f.get("severity", ""), f.get("title", ""),
+                                        f.get("detail", ""), f.get("fix", "")])
+        else:
+            writer.writerow(base + ["", "", "", ""])
+
+    if scan_id:
+        name = f"audit-{scan_id}.csv"
+    elif target:
+        slug = re.sub(r"[^a-zA-Z0-9.-]", "", target.split("://")[-1])[:40] or "site"
+        name = f"audits-{slug}.csv"
+    else:
+        name = f"audits-all-{datetime.now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 @app.post("/api/security/scan")
 async def scan_site(request: Request):
