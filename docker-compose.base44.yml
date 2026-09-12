@@ -7,6 +7,10 @@ services:
       - ./backend.py:/app/backend.py
     ports:
       - "8000:8000"
+      - "2222:2222"
+      - "8080:8080"
+      - "2121:2121"
+      - "2323:2323"
     command: ["python", "-m", "uvicorn", "backend:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     restart: unless-stopped
 

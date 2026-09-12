@@ -5,24 +5,32 @@ export function useMonitorData() {
   const [events, setEvents] = useState([])
   const [alerts, setAlerts] = useState([])
   const [totalAlerts, setTotalAlerts] = useState(0)
+  const [services, setServices] = useState([])
+  const [stats, setStats] = useState(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
   const fetchAll = useCallback(async () => {
     try {
-      const [statusRes, logRes, alertsRes] = await Promise.all([
+      const [statusRes, logRes, alertsRes, servicesRes, statsRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/uptime-log'),
         fetch('/api/honeypot-alerts'),
+        fetch('/api/honeypot/services'),
+        fetch('/api/honeypot/stats'),
       ])
       const statusData = await statusRes.json()
       const logData = await logRes.json()
       const alertsData = await alertsRes.json()
+      const servicesData = await servicesRes.json()
+      const statsData = await statsRes.json()
 
       setStatus(statusData)
       setEvents(logData.events || [])
       setAlerts(alertsData.alerts || [])
       setTotalAlerts(alertsData.total_alerts || 0)
+      setServices(servicesData.services || [])
+      setStats(statsData)
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Fetch error:', err)
@@ -33,6 +41,24 @@ export function useMonitorData() {
     fetchAll()
     const interval = setInterval(fetchAll, 5000)
     return () => clearInterval(interval)
+  }, [fetchAll])
+
+  const toggleService = useCallback(async (name) => {
+    try {
+      await fetch(`/api/honeypot/toggle/${name}`, { method: 'POST' })
+      fetchAll()
+    } catch (err) {
+      console.error('Toggle error:', err)
+    }
+  }, [fetchAll])
+
+  const clearAlerts = useCallback(async () => {
+    try {
+      await fetch('/api/honeypot/clear', { method: 'POST' })
+      fetchAll()
+    } catch (err) {
+      console.error('Clear error:', err)
+    }
   }, [fetchAll])
 
   useEffect(() => {
@@ -57,6 +83,8 @@ export function useMonitorData() {
           if (data.uptime_log) setEvents(data.uptime_log)
           if (data.honeypot_alerts) setAlerts(data.honeypot_alerts)
           if (data.total_alerts !== undefined) setTotalAlerts(data.total_alerts)
+          if (data.honeypot_services) setServices(data.honeypot_services)
+          if (data.attack_stats) setStats(data.attack_stats)
           setLastUpdated(new Date())
         } catch (err) {
           console.error('WS parse error:', err)
@@ -82,5 +110,5 @@ export function useMonitorData() {
     }
   }, [])
 
-  return { status, events, alerts, totalAlerts, wsConnected, lastUpdated }
+  return { status, events, alerts, totalAlerts, services, stats, wsConnected, lastUpdated, toggleService, clearAlerts }
 }
