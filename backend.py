@@ -4,6 +4,7 @@ import threading
 from datetime import datetime
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import socket
 import psutil
 import logging
@@ -114,7 +115,7 @@ start_ssh_honeypot()
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Failover Monitor Running"}
+    return FileResponse("index.html")
 
 @app.get("/api/status")
 def get_status():
