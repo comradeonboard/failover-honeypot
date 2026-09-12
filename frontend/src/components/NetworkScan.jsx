@@ -1,3 +1,10 @@
+const PORT_SERVICES = {
+  21: 'ftp', 22: 'ssh', 23: 'telnet', 80: 'http', 443: 'https',
+  139: 'netbios', 445: 'smb', 515: 'printer', 554: 'rtsp', 631: 'ipp',
+  8000: 'http-alt', 8080: 'http-alt', 8883: 'mqtt', 9100: 'printer',
+  3306: 'mysql', 3389: 'rdp', 49152: 'upnp',
+}
+
 export default function NetworkScan({ network, onScan }) {
   const devices = network?.devices || []
   const scanning = network?.scanning
@@ -25,12 +32,25 @@ export default function NetworkScan({ network, onScan }) {
           devices.map((d) => (
             <div className={`device-entry status-${d.status}`} key={d.ip}>
               <span className={`device-dot ${d.status}`} />
-              <span className="device-ip">{d.ip}</span>
-              <span className="device-hostname">{d.hostname || 'unknown'}</span>
-              <span className="device-mac">{d.mac || '--:--:--:--:--:--'}</span>
-              <span className="device-seen">
-                {new Date(d.last_seen).toLocaleTimeString()}
-              </span>
+              <div className="device-main">
+                <div className="device-row">
+                  <span className="device-ip">{d.ip}</span>
+                  <span className="device-hostname">{d.hostname || 'unknown'}</span>
+                  <span className="device-type">{d.device_type || 'Unknown Device'}</span>
+                </div>
+                <div className="device-row device-subrow">
+                  <span className="device-mac">{d.mac || '--:--:--:--:--:--'}</span>
+                  {d.vendor && <span className="device-vendor">{d.vendor}</span>}
+                  {(d.open_ports || []).map((p) => (
+                    <span className="port-chip" key={p}>
+                      {p}/{PORT_SERVICES[p] || 'svc'}
+                    </span>
+                  ))}
+                  <span className="device-seen">
+                    seen {new Date(d.last_seen).toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
             </div>
           ))
         )}

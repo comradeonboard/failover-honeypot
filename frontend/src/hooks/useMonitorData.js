@@ -1,5 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 
+const TOKEN_KEY = 'fhm_token'
+
+const authHeaders = () => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+const handleAuthFailure = () => {
+  localStorage.removeItem(TOKEN_KEY)
+  window.dispatchEvent(new Event('fhm:logout'))
+}
+
 export function useMonitorData() {
   const [status, setStatus] = useState({ primary_up: true, backup_up: false, active: 'primary' })
   const [events, setEvents] = useState([])
@@ -13,20 +25,20 @@ export function useMonitorData() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [statusRes, logRes, alertsRes, servicesRes, statsRes, networkRes] = await Promise.all([
-        fetch('/api/status'),
-        fetch('/api/uptime-log'),
-        fetch('/api/honeypot-alerts'),
-        fetch('/api/honeypot/services'),
-        fetch('/api/honeypot/stats'),
-        fetch('/api/network/devices'),
+      const responses = await Promise.all([
+        fetch('/api/status', { headers: authHeaders() }),
+        fetch('/api/uptime-log', { headers: authHeaders() }),
+        fetch('/api/honeypot-alerts', { headers: authHeaders() }),
+        fetch('/api/honeypot/services', { headers: authHeaders() }),
+        fetch('/api/honeypot/stats', { headers: authHeaders() }),
+        fetch('/api/network/devices', { headers: authHeaders() }),
       ])
-      const statusData = await statusRes.json()
-      const logData = await logRes.json()
-      const alertsData = await alertsRes.json()
-      const servicesData = await servicesRes.json()
-      const statsData = await statsRes.json()
-      const networkData = await networkRes.json()
+      if (responses.some((r) => r.status === 401)) {
+        handleAuthFailure()
+        return
+      }
+      const [statusData, logData, alertsData, servicesData, statsData, networkData] =
+        await Promise.all(responses.map((r) => r.json()))
 
       setStatus(statusData)
       setEvents(logData.events || [])
@@ -49,7 +61,7 @@ export function useMonitorData() {
 
   const toggleService = useCallback(async (name) => {
     try {
-      await fetch(`/api/honeypot/toggle/${name}`, { method: 'POST' })
+      await fetch(`/api/honeypot/toggle/${name}`, { method: 'POST', headers: authHeaders() })
       fetchAll()
     } catch (err) {
       console.error('Toggle error:', err)
@@ -58,7 +70,7 @@ export function useMonitorData() {
 
   const clearAlerts = useCallback(async () => {
     try {
-      await fetch('/api/honeypot/clear', { method: 'POST' })
+      await fetch('/api/honeypot/clear', { method: 'POST', headers: authHeaders() })
       fetchAll()
     } catch (err) {
       console.error('Clear error:', err)
@@ -67,7 +79,7 @@ export function useMonitorData() {
 
   const triggerScan = useCallback(async () => {
     try {
-      await fetch('/api/network/scan', { method: 'POST' })
+      await fetch('/api/network/scan', { method: 'POST', headers: authHeaders() })
       fetchAll()
     } catch (err) {
       console.error('Scan error:', err)
@@ -82,7 +94,8 @@ export function useMonitorData() {
     const connect = () => {
       if (!isMounted) return
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+      const token = encodeURIComponent(localStorage.getItem(TOKEN_KEY) || '')
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`)
 
       ws.onopen = () => {
         if (isMounted) setWsConnected(true)

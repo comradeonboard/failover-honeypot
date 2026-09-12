@@ -5,8 +5,11 @@ import socket
 import concurrent.futures
 import sqlite3
 import os
+import hashlib
+import secrets
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
 import logging
@@ -465,8 +468,16 @@ for name in honeypot_manager.services:
 
 # ============ NETWORK SCANNER ============
 
+COMMON_PORTS = {
+    21: "ftp", 22: "ssh", 23: "telnet", 80: "http", 443: "https",
+    139: "netbios", 445: "smb", 515: "printer", 554: "rtsp", 631: "ipp",
+    8000: "http-alt", 8080: "http-alt", 8883: "mqtt", 9100: "raw-printer",
+    3306: "mysql", 3389: "rdp", 49152: "upnp",
+}
+
 class NetworkScanner:
-    """Sweeps the local /24 subnet for connected devices (ping + ARP + reverse DNS)."""
+    """Sweeps the local /24 subnet for connected devices (ping + ARP + reverse
+    DNS) and profiles each one: MAC vendor, open services, device type."""
 
     def __init__(self):
         self.devices = {}
@@ -475,6 +486,77 @@ class NetworkScanner:
         self.last_scan = None
         self.subnet = None
         self.local_ip = None
+        self.vendor_cache = {}
+
+    def is_locally_administered(self, mac):
+        """Locally-administered MACs (Docker/random) have no registered vendor."""
+        if not mac:
+            return True
+        try:
+            return bool(int(mac.replace(":", "")[1], 16) & 0x2)
+        except (ValueError, IndexError):
+            return True
+
+    def lookup_vendor(self, mac):
+        """Resolve the device manufacturer from the IEEE MAC registry."""
+        if not mac or self.is_locally_administered(mac) or mac in self.vendor_cache:
+            return self.vendor_cache.get(mac, "")
+        try:
+            with urllib.request.urlopen(
+                f"https://api.macvendors.com/{mac}", timeout=3
+            ) as resp:
+                vendor = resp.read().decode().strip()[:60]
+            if vendor and "error" not in vendor.lower():
+                self.vendor_cache[mac] = vendor
+                return vendor
+        except Exception:
+            pass
+        return ""
+
+    def fingerprint_ports(self, ip):
+        """Probe common service ports to fingerprint the device."""
+        def check(port):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.5)
+                    return s.connect_ex((ip, port)) == 0
+            except Exception:
+                return False
+        open_ports = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            futures = {executor.submit(check, p): p for p in COMMON_PORTS}
+            for future in concurrent.futures.as_completed(futures):
+                if future.result():
+                    open_ports.append(futures[future])
+        return sorted(open_ports)
+
+    def infer_device_type(self, open_ports, vendor):
+        """Guess the device class from its services and manufacturer."""
+        ps = set(open_ports or [])
+        if ps & {9100, 631, 515}:
+            return "Printer"
+        if ps & {554}:
+            return "Camera"
+        if ps & {445, 139}:
+            return "Windows Computer"
+        if ps & {3389}:
+            return "Windows Host"
+        if ps & {5000, 8883, 49152}:
+            return "IoT Device"
+        if ps & {22}:
+            return "Linux Host"
+        v = (vendor or "").lower()
+        if "apple" in v:
+            return "Apple Device"
+        if "samsung" in v:
+            return "Samsung Device"
+        if "xiaomi" in v:
+            return "Xiaomi Device"
+        if "raspberry" in v:
+            return "Raspberry Pi"
+        if ps & {80, 443, 8000, 8080}:
+            return "Web Device"
+        return "Unknown Device"
 
     def detect_local_ip(self):
         try:
@@ -538,13 +620,24 @@ class NetworkScanner:
                         responded.add(ip)
                         now = datetime.now().isoformat()
                         if ip in self.devices:
-                            self.devices[ip]["status"] = "online"
-                            self.devices[ip]["last_seen"] = now
+                            device = self.devices[ip]
+                            device["status"] = "online"
+                            device["last_seen"] = now
+                            device["open_ports"] = self.fingerprint_ports(ip)
+                            device["device_type"] = self.infer_device_type(
+                                device["open_ports"], device.get("vendor", "")
+                            )
                         else:
+                            mac = self.get_mac(ip)
+                            vendor = self.lookup_vendor(mac)
+                            open_ports = self.fingerprint_ports(ip)
                             self.devices[ip] = {
                                 "ip": ip,
                                 "hostname": self.get_hostname(ip),
-                                "mac": self.get_mac(ip),
+                                "mac": mac,
+                                "vendor": vendor,
+                                "open_ports": open_ports,
+                                "device_type": self.infer_device_type(open_ports, vendor),
                                 "status": "online",
                                 "first_seen": now,
                                 "last_seen": now,
@@ -603,6 +696,47 @@ def compute_attack_stats():
         "service_breakdown": service_counts,
     }
 
+
+# ============ AUTHENTICATION ============
+
+AUTH_USERNAME = "comradeonboard"
+AUTH_PASSWORD_HASH = "783f8dd433cd2ea99d71123774474ef97067199ce9d67c36d31c953eeca5354a"
+sessions = set()
+
+def verify_password(password):
+    return hashlib.sha256(password.encode()).hexdigest() == AUTH_PASSWORD_HASH
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path == "/api/auth/login":
+        return await call_next(request)
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if token in sessions:
+        return await call_next(request)
+    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+
+@app.post("/api/auth/login")
+async def login(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if body.get("username") == AUTH_USERNAME and verify_password(str(body.get("password", ""))):
+        token = secrets.token_urlsafe(32)
+        sessions.add(token)
+        logger.info(f"Console login successful for '{AUTH_USERNAME}'")
+        return {"ok": True, "token": token, "username": AUTH_USERNAME}
+    logger.warning(f"Failed console login attempt for '{str(body.get('username', ''))[:50]}'")
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.post("/api/auth/logout")
+async def logout(request: Request):
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    sessions.discard(token)
+    return {"ok": True}
 
 # ============ API ROUTES ============
 
@@ -666,6 +800,10 @@ def health():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    token = websocket.query_params.get("token", "")
+    if token not in sessions:
+        await websocket.close(code=4401)
+        return
     try:
         while True:
             data = {

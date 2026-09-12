@@ -18,6 +18,7 @@ Fullstack security monitoring console: React (Vite) frontend in `frontend/` + Fa
 - Honeypots: 4 independent TCP listeners (HoneypotManager), start/stop at runtime, capture banners/credentials, severity-scored alerts. Alerts persist to SQLite (AlertStore) and survive backend restarts; in-memory list capped at 500. "Clear Alerts" wipes both memory and DB. Per-service hit counters are runtime-only (reset on restart).
 - Attacker bots: 3 compose services (attacker-1/2/3) running attacker/bot.py; each attacks a random honeypot every 4-15s. Deleting a bot = less traffic; scale by adding services.
 - Network scanner: ping-sweeps the local /24 (64 threads), resolves hostname via gethostbyaddr, MAC from /proc/net/arp. Auto-scans on startup; manual re-scan via POST /api/network/scan.
+- Auth: single console user (comradeonboard), password stored as SHA-256 hash in backend.py (AUTH_PASSWORD_HASH). POST /api/auth/login issues a random session token; HTTP middleware gates all /api/* except /api/auth/login; WS requires ?token=. Sessions are in-memory — a backend restart invalidates them and the frontend auto-returns to the login page. Frontend stores token in localStorage ('fhm_token'), Login.jsx gates App, Dashboard.jsx holds the console UI, logout button in Header.
 - Honeypot state is in-memory — resets on backend restart (expected).
 - Backup interface check (usb0/wlan1/ppp0/teth0) always false in a container — expected.
 - No external credentials or secrets required.

@@ -342,6 +342,25 @@ body {
   background: var(--text-faint);
 }
 
+.device-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.device-subrow {
+  gap: 10px;
+}
+
 .device-ip {
   font-size: 12px;
   font-weight: 700;
@@ -352,9 +371,22 @@ body {
 .device-hostname {
   font-size: 11px;
   color: var(--text-dim);
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.device-type {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--blue);
+  background: var(--blue-dim);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  padding: 2px 8px;
+  border-radius: 2px;
   white-space: nowrap;
 }
 
@@ -364,9 +396,27 @@ body {
   letter-spacing: 0.5px;
 }
 
+.device-vendor {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.port-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--green);
+  background: var(--green-dim);
+  border: 1px solid rgba(63, 185, 80, 0.35);
+  padding: 1px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
 .device-seen {
   font-size: 10px;
   color: var(--text-faint);
+  margin-left: auto;
 }
 
 /* Honeypot services */
@@ -855,6 +905,149 @@ body {
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
+}
+
+/* Header controls */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logout-btn {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 9px 14px;
+  background: transparent;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  color: var(--red);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-btn:hover {
+  background: var(--red-dim);
+  border-color: var(--red);
+}
+
+/* Login page */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-box {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.login-box .classification {
+  padding: 7px 24px;
+}
+
+.login-header {
+  padding: 28px 30px 8px;
+}
+
+.login-header h1 {
+  font-size: 16px;
+}
+
+.login-sub {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
+.login-form {
+  padding: 20px 30px 30px;
+}
+
+.login-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 14px 0 6px;
+}
+
+.login-label:first-child {
+  margin-top: 0;
+}
+
+.login-input {
+  width: 100%;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 12px 14px;
+  border-radius: 2px;
+  transition: border-color 0.2s ease;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25);
+}
+
+.login-error {
+  margin-top: 16px;
+  padding: 9px 12px;
+  background: var(--red-dim);
+  border: 1px solid rgba(248, 81, 73, 0.35);
+  border-radius: 2px;
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.login-btn {
+  width: 100%;
+  margin-top: 20px;
+  padding: 13px;
+  background: var(--blue-dim);
+  border: 1px solid rgba(88, 166, 255, 0.45);
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: rgba(88, 166, 255, 0.2);
+  border-color: var(--blue);
+}
+
+.login-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Responsive */
