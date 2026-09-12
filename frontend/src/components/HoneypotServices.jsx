@@ -1,14 +1,14 @@
-const SERVICE_ICONS = {
-  ssh: '🔐',
-  http: '🌐',
-  ftp: '📁',
-  telnet: '💻',
+const SERVICE_TAGS = {
+  ssh: 'SSH',
+  http: 'WEB',
+  ftp: 'FTP',
+  telnet: 'TEL',
 }
 
 export default function HoneypotServices({ services, onToggle }) {
   return (
     <section className="section">
-      <h2>🕸️ Honeypot Services</h2>
+      <h2>Honeypot Services</h2>
       <p className="section-desc">
         Each service listens for attackers on its port. Toggle a switch to start or stop it live.
       </p>
@@ -19,10 +19,10 @@ export default function HoneypotServices({ services, onToggle }) {
             className={`honeypot-service-card ${service.running ? 'active' : 'inactive'}`}
           >
             <div className="service-header">
-              <span className="service-icon">{SERVICE_ICONS[service.name] || '🔌'}</span>
+              <span className="service-icon">{SERVICE_TAGS[service.name] || 'SRV'}</span>
               <div className="service-info">
                 <h3>{service.name.toUpperCase()}</h3>
-                <span className="service-port">Port {service.port}</span>
+                <span className="service-port">Port {service.port} // {service.protocol}</span>
               </div>
               <label className="toggle-switch">
                 <input

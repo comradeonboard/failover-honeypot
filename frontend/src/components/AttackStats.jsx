@@ -5,7 +5,7 @@ export default function AttackStats({ stats }) {
 
   return (
     <section className="section">
-      <h2>📊 Attack Analytics</h2>
+      <h2>Attack Analytics</h2>
       <div className="stats-grid">
         <div className="stats-card">
           <h3>Top Attacker IPs</h3>

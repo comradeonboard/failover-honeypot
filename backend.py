@@ -2,6 +2,7 @@ import subprocess
 import time
 import threading
 import socket
+import concurrent.futures
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -384,6 +385,126 @@ for name in honeypot_manager.services:
     honeypot_manager.start(name)
 
 
+# ============ NETWORK SCANNER ============
+
+class NetworkScanner:
+    """Sweeps the local /24 subnet for connected devices (ping + ARP + reverse DNS)."""
+
+    def __init__(self):
+        self.devices = {}
+        self.scanning = False
+        self.progress = 0
+        self.last_scan = None
+        self.subnet = None
+        self.local_ip = None
+
+    def detect_local_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return None
+
+    def get_mac(self, ip):
+        try:
+            with open('/proc/net/arp') as f:
+                for line in f.readlines()[1:]:
+                    parts = line.split()
+                    if parts and parts[0] == ip:
+                        return parts[3]
+        except:
+            pass
+        return None
+
+    def get_hostname(self, ip):
+        try:
+            return socket.gethostbyaddr(ip)[0]
+        except:
+            return ""
+
+    def ping(self, ip):
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "1", ip],
+                timeout=2, capture_output=True,
+            )
+            return result.returncode == 0
+        except:
+            return False
+
+    def scan(self):
+        if self.scanning:
+            return
+        self.scanning = True
+        self.progress = 0
+        try:
+            local_ip = self.detect_local_ip()
+            if not local_ip:
+                return
+            self.local_ip = local_ip
+            prefix = local_ip.rsplit('.', 1)[0]
+            self.subnet = f"{prefix}.0/24"
+            ips = [f"{prefix}.{i}" for i in range(1, 255)]
+            responded = set()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
+                futures = {executor.submit(self.ping, ip): ip for ip in ips}
+                done = 0
+                for future in concurrent.futures.as_completed(futures):
+                    done += 1
+                    self.progress = int((done / len(futures)) * 100)
+                    ip = futures[future]
+                    if future.result():
+                        responded.add(ip)
+                        now = datetime.now().isoformat()
+                        if ip in self.devices:
+                            self.devices[ip]["status"] = "online"
+                            self.devices[ip]["last_seen"] = now
+                        else:
+                            self.devices[ip] = {
+                                "ip": ip,
+                                "hostname": self.get_hostname(ip),
+                                "mac": self.get_mac(ip),
+                                "status": "online",
+                                "first_seen": now,
+                                "last_seen": now,
+                            }
+            for ip, device in self.devices.items():
+                if ip not in responded:
+                    device["status"] = "offline"
+            self.last_scan = datetime.now().isoformat()
+            logger.info(f"Network scan complete: {len(responded)} hosts up on {self.subnet}")
+        except Exception as e:
+            logger.error(f"Network scan error: {e}")
+        finally:
+            self.scanning = False
+            self.progress = 100
+
+    def start_scan_async(self):
+        if self.scanning:
+            return
+        threading.Thread(target=self.scan, daemon=True).start()
+
+    def to_dict(self):
+        devices = sorted(
+            self.devices.values(),
+            key=lambda d: tuple(int(x) for x in d["ip"].split(".")),
+        )
+        return {
+            "scanning": self.scanning,
+            "progress": self.progress,
+            "last_scan": self.last_scan,
+            "subnet": self.subnet,
+            "local_ip": self.local_ip,
+            "devices": devices,
+        }
+
+network_scanner = NetworkScanner()
+network_scanner.start_scan_async()
+
+
 def compute_attack_stats():
     alerts = monitor.honeypot_alerts
     ip_counts = {}
@@ -450,6 +571,15 @@ def clear_alerts():
 def get_honeypot_stats():
     return compute_attack_stats()
 
+@app.get("/api/network/devices")
+def get_network_devices():
+    return network_scanner.to_dict()
+
+@app.post("/api/network/scan")
+def trigger_network_scan():
+    network_scanner.start_scan_async()
+    return {"ok": True, "scanning": True}
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -470,6 +600,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "total_alerts": len(monitor.honeypot_alerts),
                 "honeypot_services": [s["service"].to_dict() for s in honeypot_manager.services.values()],
                 "attack_stats": compute_attack_stats(),
+                "network": network_scanner.to_dict(),
             }
             await websocket.send_json(data)
             await asyncio.sleep(2)

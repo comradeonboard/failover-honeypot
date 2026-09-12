@@ -7,23 +7,26 @@ export function useMonitorData() {
   const [totalAlerts, setTotalAlerts] = useState(0)
   const [services, setServices] = useState([])
   const [stats, setStats] = useState(null)
+  const [network, setNetwork] = useState(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
   const fetchAll = useCallback(async () => {
     try {
-      const [statusRes, logRes, alertsRes, servicesRes, statsRes] = await Promise.all([
+      const [statusRes, logRes, alertsRes, servicesRes, statsRes, networkRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/uptime-log'),
         fetch('/api/honeypot-alerts'),
         fetch('/api/honeypot/services'),
         fetch('/api/honeypot/stats'),
+        fetch('/api/network/devices'),
       ])
       const statusData = await statusRes.json()
       const logData = await logRes.json()
       const alertsData = await alertsRes.json()
       const servicesData = await servicesRes.json()
       const statsData = await statsRes.json()
+      const networkData = await networkRes.json()
 
       setStatus(statusData)
       setEvents(logData.events || [])
@@ -31,6 +34,7 @@ export function useMonitorData() {
       setTotalAlerts(alertsData.total_alerts || 0)
       setServices(servicesData.services || [])
       setStats(statsData)
+      setNetwork(networkData)
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Fetch error:', err)
@@ -61,6 +65,15 @@ export function useMonitorData() {
     }
   }, [fetchAll])
 
+  const triggerScan = useCallback(async () => {
+    try {
+      await fetch('/api/network/scan', { method: 'POST' })
+      fetchAll()
+    } catch (err) {
+      console.error('Scan error:', err)
+    }
+  }, [fetchAll])
+
   useEffect(() => {
     let ws = null
     let reconnectTimeout = null
@@ -85,6 +98,7 @@ export function useMonitorData() {
           if (data.total_alerts !== undefined) setTotalAlerts(data.total_alerts)
           if (data.honeypot_services) setServices(data.honeypot_services)
           if (data.attack_stats) setStats(data.attack_stats)
+          if (data.network) setNetwork(data.network)
           setLastUpdated(new Date())
         } catch (err) {
           console.error('WS parse error:', err)
@@ -110,5 +124,8 @@ export function useMonitorData() {
     }
   }, [])
 
-  return { status, events, alerts, totalAlerts, services, stats, wsConnected, lastUpdated, toggleService, clearAlerts }
+  return {
+    status, events, alerts, totalAlerts, services, stats, network,
+    wsConnected, lastUpdated, toggleService, clearAlerts, triggerScan,
+  }
 }
