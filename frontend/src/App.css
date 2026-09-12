@@ -2128,6 +2128,123 @@ body {
   .footer { padding: 14px 20px; font-size: 9px; }
 }
 
+/* AI features (Claude) */
+.ai-explain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  grid-column: 1 / -1;
+}
+
+.ai-btn {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--blue);
+  background: none;
+  border: 1px solid var(--blue);
+  border-radius: 2px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.ai-btn:hover { background: rgba(88, 166, 255, 0.12); }
+.ai-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.ai-output {
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--blue);
+  border-radius: 2px;
+  padding: 14px 16px;
+}
+
+.ai-error {
+  font-size: 10px;
+  color: var(--red);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* AI assistant chat */
+.assistant-section .assistant-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 2px;
+  padding: 16px;
+  min-height: 220px;
+  max-height: 480px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+
+.assistant-msg {
+  font-size: 11px;
+  line-height: 1.7;
+  padding: 10px 14px;
+  border-radius: 2px;
+  max-width: 85%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-msg.user {
+  align-self: flex-end;
+  background: var(--blue-dim);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  color: var(--text);
+}
+
+.assistant-msg.assistant {
+  align-self: flex-start;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+
+.assistant-msg.assistant.thinking {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.assistant-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.assistant-input-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  padding: 12px 14px;
+}
+
+.assistant-input-row input:focus {
+  outline: 1px solid var(--blue);
+}
+
+@media (max-width: 768px) {
+  .assistant-input-row { flex-direction: column; }
+  .assistant-msg { max-width: 100%; }
+}
+
 @media (max-width: 400px) {
   .status-value { font-size: 17px; letter-spacing: 2px; }
   .card-sub { font-size: 10px; }

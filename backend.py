@@ -218,6 +218,7 @@ monitor.log_event("MONITOR_START", "Monitoring service started")
 # ============ TRACKING STORES (SSL expiry / device inventory / uptime samples) ============
 
 from tracking import ssl_store, device_store, uptime_store
+from ai import AiError, explain_audit, honeypot_analysis, assistant_reply
 
 # ============ DEFENSE SHIELD ============
 
@@ -1438,6 +1439,90 @@ async def add_ssl_target(request: Request):
 @app.delete("/api/ssl/{target_id}")
 def delete_ssl_target(target_id: int):
     return ssl_store.remove(target_id)
+
+
+# ============ AI (ANTHROPIC CLAUDE) ============
+
+def build_assistant_context():
+    """Snapshot of live console data, compacted for the assistant prompt."""
+    network_devices = [
+        {k: d.get(k) for k in ("ip", "mac", "hostname", "vendor", "device_type")}
+        for d in getattr(network_scanner, "devices", [])
+    ][:50]
+    audits = web_scanner.to_dict()["scans"][:5]
+    ctx = {
+        "attack_stats": compute_attack_stats(),
+        "recent_honeypot_alerts": monitor.honeypot_alerts[-50:],
+        "banned_ips": [b.get("ip") for b in defense.banned.values()],
+        "network_devices": network_devices,
+        "known_devices": device_store.list().get("devices", [])[:50],
+        "uptime_report_7d": uptime_store.report(7),
+        "recent_audits": [
+            {k: s.get(k) for k in ("target", "grade", "score", "findings_count", "scanned_at")}
+            for s in audits
+        ],
+    }
+    return json.dumps(ctx, default=str)[:12000]
+
+
+@app.post("/api/ai/audit/{scan_id}")
+def ai_explain_audit(scan_id: int):
+    """Claude explains a stored web security audit in plain English."""
+    row = web_scanner.conn.execute(
+        "SELECT id, target, grade, score, findings, scanned_at FROM scan_history WHERE id=?",
+        (scan_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    entry = {
+        "target": row[1],
+        "grade": row[2],
+        "score": row[3],
+        "findings": json.loads(row[4]) if row[4] else [],
+        "scanned_at": row[5],
+    }
+    if not entry["findings"]:
+        raise HTTPException(status_code=400, detail="No findings recorded for this audit")
+    try:
+        return {"explanation": explain_audit(entry)}
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.post("/api/ai/honeypot")
+def ai_honeypot_analysis():
+    """Claude analyzes captured honeypot attack patterns."""
+    try:
+        return {
+            "explanation": honeypot_analysis(
+                monitor.honeypot_alerts,
+                compute_attack_stats(),
+                [b.get("ip") for b in defense.banned.values()],
+            )
+        }
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.post("/api/ai/assistant")
+async def ai_assistant(request: Request):
+    """Chat with Claude, grounded in live console data."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+    history = [
+        {"role": m.get("role"), "content": str(m.get("content", ""))[:2000]}
+        for m in (body.get("messages") or [])
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    if not history or history[-1]["role"] != "user":
+        raise HTTPException(status_code=400, detail="No question provided")
+    history = history[-12:]
+    try:
+        return {"reply": assistant_reply(history, build_assistant_context())}
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
 
 @app.get("/api/devices/inventory")
 def get_device_inventory():

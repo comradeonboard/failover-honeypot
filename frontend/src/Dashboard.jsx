@@ -15,6 +15,7 @@ import UptimeLogPage from './pages/UptimeLogPage'
 import SslPage from './pages/SslPage'
 import InventoryPage from './pages/InventoryPage'
 import ReportsPage from './pages/ReportsPage'
+import AiAssistantPage from './pages/AiAssistantPage'
 
 export default function Dashboard({ onLogout }) {
   const {
@@ -80,6 +81,8 @@ export default function Dashboard({ onLogout }) {
         return <InventoryPage />
       case 'reports':
         return <ReportsPage />
+      case 'assistant':
+        return <AiAssistantPage />
       default:
         return <OverviewPage status={status} hosts={hosts} />
     }

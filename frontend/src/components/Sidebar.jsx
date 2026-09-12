@@ -9,6 +9,7 @@ const SECTIONS = [
   { key: 'ssl', label: 'SSL Certs' },
   { key: 'inventory', label: 'Inventory' },
   { key: 'reports', label: 'Reports' },
+  { key: 'assistant', label: 'AI Assistant' },
 ]
 
 export default function Sidebar({ current, onNavigate, open, onClose }) {

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AiExplanation from './AiExplanation'
 
 const downloadCsv = async (params, filename) => {
   const token = localStorage.getItem('fhm_token')
@@ -82,18 +83,21 @@ export default function ScanHistory({ history }) {
                 {exporting === h.id ? '…' : 'CSV'}
               </button>
               {openId === h.id && h.findings?.length > 0 && (
-                <div className="history-findings">
-                  {h.findings.map((f, i) => (
-                    <div className="finding" key={i}>
-                      <span className={`sev-chip ${f.severity}`}>{f.severity}</span>
-                      <div className="finding-body">
-                        <p className="finding-title">{f.title}</p>
-                        <p className="finding-detail">{f.detail}</p>
-                        <p className="finding-fix">Fix: {f.fix}</p>
+                <>
+                  <div className="history-findings">
+                    {h.findings.map((f, i) => (
+                      <div className="finding" key={i}>
+                        <span className={`sev-chip ${f.severity}`}>{f.severity}</span>
+                        <div className="finding-body">
+                          <p className="finding-title">{f.title}</p>
+                          <p className="finding-detail">{f.detail}</p>
+                          <p className="finding-fix">Fix: {f.fix}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                  <AiExplanation endpoint={`/api/ai/audit/${h.id}`} buttonLabel="Explain with AI" />
+                </>
               )}
             </div>
           ))}
