@@ -32,11 +32,7 @@ class SystemMonitor:
         
     def log_event(self, event_type, details):
         timestamp = datetime.now().isoformat()
-        event = {
-            "timestamp": timestamp,
-            "type": event_type,
-            "details": details
-        }
+        event = {"timestamp": timestamp, "type": event_type, "details": details}
         self.uptime_log.append(event)
         logger.info(f"{event_type}: {details}")
         
@@ -49,11 +45,7 @@ monitor = SystemMonitor()
 
 def check_primary_connection():
     try:
-        result = subprocess.run(
-            ["ping", "-c", "1", "8.8.8.8"],
-            timeout=5,
-            capture_output=True
-        )
+        result = subprocess.run(["ping", "-c", "1", "8.8.8.8"], timeout=5, capture_output=True)
         return result.returncode == 0
     except Exception as e:
         logger.error(f"Primary check error: {e}")
@@ -103,23 +95,13 @@ monitor_thread.start()
 def start_ssh_honeypot():
     def handle_connection(client_socket, address):
         try:
-            alert = {
-                "type": "SSH_CONNECTION",
-                "source_ip": address[0],
-                "source_port": address[1]
-            }
+            alert = {"type": "SSH_CONNECTION", "source_ip": address[0], "source_port": address[1]}
             monitor.add_honeypot_alert(alert)
-            
             client_socket.send(b"SSH-2.0-OpenSSH_7.4\r\n")
-            
             data = client_socket.recv(1024)
             if data:
-                banner_alert = {
-                    "type": "SSH_BANNER_RECEIVED",
-                    "source_ip": address[0]
-                }
+                banner_alert = {"type": "SSH_BANNER_RECEIVED", "source_ip": address[0]}
                 monitor.add_honeypot_alert(banner_alert)
-            
             client_socket.close()
         except Exception as e:
             logger.error(f"Connection handler error: {e}")
@@ -135,11 +117,7 @@ def start_ssh_honeypot():
             while True:
                 try:
                     client, address = server.accept()
-                    thread = threading.Thread(
-                        target=handle_connection,
-                        args=(client, address),
-                        daemon=True
-                    )
+                    thread = threading.Thread(target=handle_connection, args=(client, address), daemon=True)
                     thread.start()
                 except Exception as e:
                     logger.error(f"Accept error: {e}")
@@ -156,16 +134,28 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = {
-                "status": {
-                    "primary_up": monitor.primary_up,
-                    "backup_up": monitor.backup_up,
-                    "active_connection": monitor.active_connection
-                }
-            }
+            data = {"status": {"primary_up": monitor.primary_up, "backup_up": monitor.backup_up, "active_connection": monitor.active_connection}}
             await websocket.send_json(data)
             await asyncio.sleep(2)
-cat > requirements.txt << 'ENDOFFILE'
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-psutil==5.9.6
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+
+@app.get("/api/status")
+def get_status():
+    return {"primary_up": monitor.primary_up, "backup_up": monitor.backup_up, "active_connection": monitor.active_connection, "timestamp": datetime.now().isoformat()}
+
+@app.get("/api/uptime-log")
+def get_uptime_log():
+    return {"events": monitor.uptime_log[-100:], "total_events": len(monitor.uptime_log)}
+
+@app.get("/api/honeypot-alerts")
+def get_honeypot_alerts():
+    return {"alerts": monitor.honeypot_alerts[-50:], "total_alerts": len(monitor.honeypot_alerts)}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
