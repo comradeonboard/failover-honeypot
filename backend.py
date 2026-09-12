@@ -4,7 +4,6 @@ import threading
 from datetime import datetime
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import socket
 import psutil
 import logging
@@ -30,19 +29,20 @@ class SystemMonitor:
         self.active_connection = "primary"
         self.uptime_log = []
         self.honeypot_alerts = []
-        
+
     def log_event(self, event_type, details):
         timestamp = datetime.now().isoformat()
         event = {"timestamp": timestamp, "type": event_type, "details": details}
         self.uptime_log.append(event)
         logger.info(f"{event_type}: {details}")
-        
+
     def add_honeypot_alert(self, alert):
         alert["timestamp"] = datetime.now().isoformat()
         self.honeypot_alerts.append(alert)
         logger.warning(f"HONEYPOT ALERT: {alert}")
 
 monitor = SystemMonitor()
+monitor.log_event("MONITOR_START", "Monitoring service started")
 
 def check_primary_connection():
     try:
@@ -95,7 +95,7 @@ def start_ssh_honeypot():
             client_socket.close()
         except:
             pass
-    
+
     def honeypot_listener():
         try:
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -108,14 +108,14 @@ def start_ssh_honeypot():
                 threading.Thread(target=handle_connection, args=(client, address), daemon=True).start()
         except:
             pass
-    
+
     threading.Thread(target=honeypot_listener, daemon=True).start()
 
 start_ssh_honeypot()
 
 @app.get("/")
 def root():
-    return FileResponse("index.html")
+    return {"status": "ok", "message": "Failover Monitor Running"}
 
 @app.get("/api/status")
 def get_status():
@@ -127,11 +127,31 @@ def get_uptime_log():
 
 @app.get("/api/honeypot-alerts")
 def get_honeypot_alerts():
-    return {"alerts": monitor.honeypot_alerts[-50:]}
+    return {"alerts": monitor.honeypot_alerts[-50:], "total_alerts": len(monitor.honeypot_alerts)}
 
 @app.get("/health")
 def health():
     return {"ok": True}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = {
+                "status": {
+                    "primary_up": monitor.primary_up,
+                    "backup_up": monitor.backup_up,
+                    "active": monitor.active_connection,
+                },
+                "uptime_log": monitor.uptime_log[-100:],
+                "honeypot_alerts": monitor.honeypot_alerts[-50:],
+                "total_alerts": len(monitor.honeypot_alerts),
+            }
+            await websocket.send_json(data)
+            await asyncio.sleep(2)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     import uvicorn
