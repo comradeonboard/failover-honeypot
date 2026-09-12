@@ -7,6 +7,7 @@ import sqlite3
 import os
 import hashlib
 import secrets
+import urllib.request
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
 from fastapi.responses import JSONResponse
