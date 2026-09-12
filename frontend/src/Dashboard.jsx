@@ -1,16 +1,21 @@
+import { useState } from 'react'
 import { useMonitorData } from './hooks/useMonitorData'
 import { useSecurityNotifications } from './hooks/useSecurityNotifications'
+import { useHashRoute } from './hooks/useHashRoute'
 import AlertToasts from './components/AlertToasts'
 import Header from './components/Header'
-import StatusSection from './components/StatusSection'
-import HostsPanel from './components/HostsPanel'
-import NetworkScan from './components/NetworkScan'
-import SecurityScanner from './components/SecurityScanner'
-import DefenseShield from './components/DefenseShield'
-import HoneypotServices from './components/HoneypotServices'
-import HoneypotAlerts from './components/HoneypotAlerts'
-import AttackStats from './components/AttackStats'
-import UptimeLog from './components/UptimeLog'
+import Sidebar from './components/Sidebar'
+import OverviewPage from './pages/OverviewPage'
+import NetworkScanPage from './pages/NetworkScanPage'
+import SecurityAuditPage from './pages/SecurityAuditPage'
+import DefensePage from './pages/DefensePage'
+import HoneypotPage from './pages/HoneypotPage'
+import AnalyticsPage from './pages/AnalyticsPage'
+import UptimeLogPage from './pages/UptimeLogPage'
+import SslPage from './pages/SslPage'
+import InventoryPage from './pages/InventoryPage'
+import ReportsPage from './pages/ReportsPage'
+import AiAssistantPage from './pages/AiAssistantPage'
 
 export default function Dashboard({ onLogout }) {
   const {
@@ -22,6 +27,7 @@ export default function Dashboard({ onLogout }) {
     stats,
     network,
     securityScans,
+    securityHistory,
     defense,
     hosts,
     wsConnected,
@@ -39,6 +45,49 @@ export default function Dashboard({ onLogout }) {
     defense
   )
 
+  const [route, navigate] = useHashRoute()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const goToSection = (key) => {
+    setSidebarOpen(false)
+    navigate(key)
+  }
+
+  const renderPage = () => {
+    switch (route) {
+      case 'network':
+        return <NetworkScanPage network={network} onScan={triggerScan} />
+      case 'audit':
+        return <SecurityAuditPage scans={securityScans} history={securityHistory} onScan={scanWebsite} />
+      case 'defense':
+        return <DefensePage defense={defense} onBan={banIp} onUnban={unbanIp} />
+      case 'honeypot':
+        return (
+          <HoneypotPage
+            services={services}
+            alerts={alerts}
+            totalAlerts={totalAlerts}
+            onToggle={toggleService}
+            onClear={clearAlerts}
+          />
+        )
+      case 'analytics':
+        return <AnalyticsPage stats={stats} />
+      case 'uptime':
+        return <UptimeLogPage events={events} />
+      case 'ssl':
+        return <SslPage />
+      case 'inventory':
+        return <InventoryPage />
+      case 'reports':
+        return <ReportsPage />
+      case 'assistant':
+        return <AiAssistantPage />
+      default:
+        return <OverviewPage status={status} hosts={hosts} />
+    }
+  }
+
   return (
     <div className="app">
       <div className="container">
@@ -47,30 +96,35 @@ export default function Dashboard({ onLogout }) {
           <span>Security Monitoring System</span>
         </div>
         <Header wsConnected={wsConnected} onLogout={onLogout} />
-        {permission !== 'granted' && (
-          <div className="notify-bar">
-            <span>
-              Real-time intrusion notifications: {permission === 'denied' ? 'blocked by browser' : 'off'}
-            </span>
-            {permission !== 'denied' && (
-              <button className="notify-btn" onClick={requestPermission}>
-                Enable
-              </button>
+        <button className="sidebar-toggle" onClick={() => setSidebarOpen(true)}>
+          ☰ Menu
+        </button>
+        <div className="layout">
+          <Sidebar
+            current={route}
+            onNavigate={goToSection}
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+          <div className="main-content">
+            {permission !== 'granted' && (
+              <div className="notify-bar">
+                <span>
+                  Real-time intrusion notifications: {permission === 'denied' ? 'blocked by browser' : 'off'}
+                </span>
+                {permission !== 'denied' && (
+                  <button className="notify-btn" onClick={requestPermission}>
+                    Enable
+                  </button>
+                )}
+              </div>
             )}
+            {renderPage()}
+            <footer className="footer">
+              <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
+            </footer>
           </div>
-        )}
-        <StatusSection status={status} />
-        <HostsPanel hosts={hosts} />
-        <NetworkScan network={network} onScan={triggerScan} />
-        <SecurityScanner scans={securityScans} onScan={scanWebsite} />
-        <DefenseShield defense={defense} onBan={banIp} onUnban={unbanIp} />
-        <HoneypotServices services={services} onToggle={toggleService} />
-        <HoneypotAlerts alerts={alerts} totalAlerts={totalAlerts} onClear={clearAlerts} />
-        <AttackStats stats={stats} />
-        <UptimeLog events={events} />
-        <footer className="footer">
-          <p>Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '--:--:--'}</p>
-        </footer>
+        </div>
         <AlertToasts toasts={toasts} onDismiss={dismissToast} />
       </div>
     </div>

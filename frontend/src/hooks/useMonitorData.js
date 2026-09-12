@@ -21,6 +21,7 @@ export function useMonitorData() {
   const [stats, setStats] = useState(null)
   const [network, setNetwork] = useState(null)
   const [securityScans, setSecurityScans] = useState([])
+  const [securityHistory, setSecurityHistory] = useState([])
   const [defense, setDefense] = useState(null)
   const [hosts, setHosts] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
@@ -36,6 +37,7 @@ export function useMonitorData() {
         fetch('/api/honeypot/stats', { headers: authHeaders() }),
         fetch('/api/network/devices', { headers: authHeaders() }),
         fetch('/api/security/scans', { headers: authHeaders() }),
+        fetch('/api/security/history', { headers: authHeaders() }),
         fetch('/api/defense/status', { headers: authHeaders() }),
         fetch('/api/auth/hosts', { headers: authHeaders() }),
       ])
@@ -43,7 +45,7 @@ export function useMonitorData() {
         handleAuthFailure()
         return
       }
-      const [statusData, logData, alertsData, servicesData, statsData, networkData, securityData, defenseData, hostsData] =
+      const [statusData, logData, alertsData, servicesData, statsData, networkData, securityData, historyData, defenseData, hostsData] =
         await Promise.all(responses.map((r) => r.json()))
 
       setStatus(statusData)
@@ -54,6 +56,7 @@ export function useMonitorData() {
       setStats(statsData)
       setNetwork(networkData)
       setSecurityScans(securityData.scans || [])
+      setSecurityHistory(historyData.history || [])
       setDefense(defenseData)
       setHosts(hostsData.hosts || [])
       setLastUpdated(new Date())
@@ -187,7 +190,7 @@ export function useMonitorData() {
   }, [])
 
   return {
-    status, events, alerts, totalAlerts, services, stats, network, securityScans, defense, hosts,
+    status, events, alerts, totalAlerts, services, stats, network, securityScans, securityHistory, defense, hosts,
     wsConnected, lastUpdated, toggleService, clearAlerts, triggerScan, scanWebsite,
     banIp, unbanIp,
   }

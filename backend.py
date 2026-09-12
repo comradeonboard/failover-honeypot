@@ -10,10 +10,13 @@ import secrets
 import urllib.request
 import urllib.error
 import re
+import json
+import csv
+import io
 from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
@@ -211,6 +214,11 @@ class SystemMonitor:
 
 monitor = SystemMonitor()
 monitor.log_event("MONITOR_START", "Monitoring service started")
+
+# ============ TRACKING STORES (SSL expiry / device inventory / uptime samples) ============
+
+from tracking import ssl_store, device_store, uptime_store
+from ai import AiError, explain_audit, honeypot_analysis, assistant_reply
 
 # ============ DEFENSE SHIELD ============
 
@@ -415,6 +423,7 @@ def monitor_connections():
             monitor.backup_up = backup
             status = "available" if backup else "unavailable"
             monitor.log_event("BACKUP_STATUS", status)
+        uptime_store.record(primary, backup)
         time.sleep(5)
 
 monitor_thread = threading.Thread(target=monitor_connections, daemon=True)
@@ -924,6 +933,7 @@ class NetworkScanner:
                 if ip not in responded:
                     device["status"] = "offline"
             self.last_scan = datetime.now().isoformat()
+            device_store.sync(self.devices)
             logger.info(f"Network scan complete: {len(responded)} hosts up on {self.subnet}")
         except Exception as e:
             logger.error(f"Network scan error: {e}")
@@ -1026,6 +1036,44 @@ class WebSecurityScanner:
     def __init__(self):
         self.scans = {}
         self.lock = threading.Lock()
+        try:
+            self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        except Exception:
+            self.conn = sqlite3.connect("honeypot.db", check_same_thread=False)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS scan_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT,
+                status TEXT,
+                grade TEXT,
+                score INTEGER,
+                findings_count INTEGER,
+                scanned_at TEXT,
+                findings TEXT
+            )"""
+        )
+        self.conn.commit()
+
+    def _record(self, entry):
+        """Persist a finished audit to the scan_history table."""
+        try:
+            findings = entry.get("findings", [])
+            self.conn.execute(
+                "INSERT INTO scan_history (target, status, grade, score, findings_count, scanned_at, findings) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry.get("target"),
+                    entry.get("status"),
+                    entry.get("grade"),
+                    entry.get("score"),
+                    len(findings),
+                    entry.get("scanned_at"),
+                    json.dumps(findings),
+                ),
+            )
+            self.conn.commit()
+        except Exception as err:
+            logger.error(f"Failed to persist scan history: {err}")
 
     def normalize(self, target):
         target = (target or "").strip()[:200]
@@ -1062,13 +1110,15 @@ class WebSecurityScanner:
 
         status, headers, cookies, body = self.fetch(target)
         if status is None:
+            entry = {
+                "target": target,
+                "status": "error",
+                "findings": [],
+                "scanned_at": datetime.now().isoformat(),
+            }
             with self.lock:
-                self.scans[target] = {
-                    "target": target,
-                    "status": "error",
-                    "findings": [],
-                    "scanned_at": datetime.now().isoformat(),
-                }
+                self.scans[target] = entry
+            self._record(entry)
             return
 
         if not target.startswith("https://"):
@@ -1144,15 +1194,17 @@ class WebSecurityScanner:
 
         score = max(0, 100 - sum(SEVERITY_PENALTY.get(f["severity"], 0) for f in findings))
         grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        entry = {
+            "target": target,
+            "status": "complete",
+            "score": score,
+            "grade": grade,
+            "findings": findings,
+            "scanned_at": datetime.now().isoformat(),
+        }
         with self.lock:
-            self.scans[target] = {
-                "target": target,
-                "status": "complete",
-                "score": score,
-                "grade": grade,
-                "findings": findings,
-                "scanned_at": datetime.now().isoformat(),
-            }
+            self.scans[target] = entry
+        self._record(entry)
         logger.info(f"Web security audit of {target}: grade {grade} ({score}/100), {len(findings)} findings")
 
     def start_scan(self, target):
@@ -1171,6 +1223,29 @@ class WebSecurityScanner:
         with self.lock:
             scans = sorted(self.scans.values(), key=lambda s: s["scanned_at"], reverse=True)
         return {"scans": scans[:20]}
+
+    def history(self, limit=100):
+        """Past audits, most recent first, persisted across restarts."""
+        rows = self.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history ORDER BY scanned_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return {
+            "history": [
+                {
+                    "id": r[0],
+                    "target": r[1],
+                    "status": r[2],
+                    "grade": r[3],
+                    "score": r[4],
+                    "findings_count": r[5],
+                    "scanned_at": r[6],
+                    "findings": json.loads(r[7]) if r[7] else [],
+                }
+                for r in rows
+            ]
+        }
 
 web_scanner = WebSecurityScanner()
 
@@ -1349,9 +1424,178 @@ def trigger_network_scan():
     network_scanner.start_scan_async()
     return {"ok": True, "scanning": True}
 
+@app.get("/api/ssl")
+def get_ssl_targets():
+    return ssl_store.list()
+
+@app.post("/api/ssl")
+async def add_ssl_target(request: Request):
+    body = await request.json()
+    result = ssl_store.add(body.get("host") or "")
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return ssl_store.list()
+
+@app.delete("/api/ssl/{target_id}")
+def delete_ssl_target(target_id: int):
+    return ssl_store.remove(target_id)
+
+
+# ============ AI (ANTHROPIC CLAUDE) ============
+
+def build_assistant_context():
+    """Snapshot of live console data, compacted for the assistant prompt."""
+    network_devices = [
+        {k: d.get(k) for k in ("ip", "mac", "hostname", "vendor", "device_type")}
+        for d in getattr(network_scanner, "devices", [])
+    ][:50]
+    audits = web_scanner.to_dict()["scans"][:5]
+    ctx = {
+        "attack_stats": compute_attack_stats(),
+        "recent_honeypot_alerts": monitor.honeypot_alerts[-50:],
+        "banned_ips": [b.get("ip") for b in defense.banned.values()],
+        "network_devices": network_devices,
+        "known_devices": device_store.list().get("devices", [])[:50],
+        "uptime_report_7d": uptime_store.report(7),
+        "recent_audits": [
+            {k: s.get(k) for k in ("target", "grade", "score", "findings_count", "scanned_at")}
+            for s in audits
+        ],
+    }
+    return json.dumps(ctx, default=str)[:12000]
+
+
+@app.post("/api/ai/audit/{scan_id}")
+def ai_explain_audit(scan_id: int):
+    """Claude explains a stored web security audit in plain English."""
+    row = web_scanner.conn.execute(
+        "SELECT id, target, grade, score, findings, scanned_at FROM scan_history WHERE id=?",
+        (scan_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    entry = {
+        "target": row[1],
+        "grade": row[2],
+        "score": row[3],
+        "findings": json.loads(row[4]) if row[4] else [],
+        "scanned_at": row[5],
+    }
+    if not entry["findings"]:
+        raise HTTPException(status_code=400, detail="No findings recorded for this audit")
+    try:
+        return {"explanation": explain_audit(entry)}
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.post("/api/ai/honeypot")
+def ai_honeypot_analysis():
+    """Claude analyzes captured honeypot attack patterns."""
+    try:
+        return {
+            "explanation": honeypot_analysis(
+                monitor.honeypot_alerts,
+                compute_attack_stats(),
+                [b.get("ip") for b in defense.banned.values()],
+            )
+        }
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+@app.post("/api/ai/assistant")
+async def ai_assistant(request: Request):
+    """Chat with Claude, grounded in live console data."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+    history = [
+        {"role": m.get("role"), "content": str(m.get("content", ""))[:2000]}
+        for m in (body.get("messages") or [])
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    if not history or history[-1]["role"] != "user":
+        raise HTTPException(status_code=400, detail="No question provided")
+    history = history[-12:]
+    try:
+        return {"reply": assistant_reply(history, build_assistant_context())}
+    except AiError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+@app.get("/api/devices/inventory")
+def get_device_inventory():
+    return device_store.list()
+
+@app.post("/api/devices/alerts/{alert_id}/ack")
+def ack_device_alert(alert_id: int):
+    return device_store.ack(alert_id)
+
+@app.post("/api/devices/alerts/ack-all")
+def ack_all_device_alerts():
+    return device_store.ack_all()
+
+@app.get("/api/uptime/report")
+def get_uptime_report(days: int = 30):
+    return uptime_store.report(max(1, min(days, 365)))
+
 @app.get("/api/security/scans")
 def get_security_scans():
     return web_scanner.to_dict()
+
+@app.get("/api/security/history")
+def get_security_history():
+    return web_scanner.history()
+
+@app.get("/api/security/export")
+def export_security_history(scan_id: int = None, target: str = None):
+    """Export one audit (scan_id), one site's audits (target), or everything
+    as an Excel-compatible CSV spreadsheet — one row per finding."""
+    if scan_id:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history WHERE id = ?", (scan_id,),
+        ).fetchall()
+    elif target:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history WHERE target = ? ORDER BY scanned_at DESC", (target,),
+        ).fetchall()
+    else:
+        rows = web_scanner.conn.execute(
+            "SELECT id, target, status, grade, score, findings_count, scanned_at, findings "
+            "FROM scan_history ORDER BY scanned_at DESC, id DESC"
+        ).fetchall()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Scan ID", "Date", "Target", "Status", "Grade", "Score",
+        "Finding Severity", "Finding", "Detail", "Recommended Fix",
+    ])
+    for r in rows:
+        base = [r[0], r[6], r[1], r[2], r[3], r[4]]
+        findings = json.loads(r[7]) if r[7] else []
+        if findings:
+            for f in findings:
+                writer.writerow(base + [f.get("severity", ""), f.get("title", ""),
+                                        f.get("detail", ""), f.get("fix", "")])
+        else:
+            writer.writerow(base + ["", "", "", ""])
+
+    if scan_id:
+        name = f"audit-{scan_id}.csv"
+    elif target:
+        slug = re.sub(r"[^a-zA-Z0-9.-]", "", target.split("://")[-1])[:40] or "site"
+        name = f"audits-{slug}.csv"
+    else:
+        name = f"audits-all-{datetime.now().strftime('%Y%m%d')}.csv"
+    return Response(
+        content="\ufeff" + buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 @app.post("/api/security/scan")
 async def scan_site(request: Request):
