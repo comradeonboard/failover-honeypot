@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Failover & Honeypot Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+        }
+        
+        .ws-indicator {
+            font-size: 14px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+        }
+        
+        .status-section {
+            padding: 40px 30px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .status-section h2 {
+            font-size: 22px;
+            margin-bottom: 25px;
+            color: #333;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .status-icon {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 12px;
+        }
+        
+        .status-card h3 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .status-card p {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .log-section {
+            padding: 40px 30px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .log-section h2 {
+            font-size: 22px;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .log-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .log-entry {
+            display: flex;
+            gap: 15px;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .timestamp {
+            color: #999;
+            font-weight: 600;
+            min-width: 90px;
+        }
+        
+        .event-type {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .honeypot-section {
+            padding: 40px 30px;
+        }
+        
+        .alert-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .alert-entry {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+            border-left: 4px solid #f44336;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .alert-ip {
+            background: #ffebee;
+            color: #c62828;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        
+        footer {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #eee;
+            text-align: center;
+            color: #999;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🔒 Failover & Honeypot Monitor</h1>
+            <div class="ws-indicator">
+                <span id="ws-status">🔴 Connecting...</span>
+            </div>
+        </header>
+        
+        <section class="status-section">
+            <h2>Connection Status</h2>
+            <div class="status-grid">
+                <div class="status-card">
+                    <div class="status-icon" id="primary-icon">✓</div>
+                    <h3>Primary Connection</h3>
+                    <p id="primary-status">Online</p>
+                </div>
+                
+                <div class="status-card">
+                    <div class="status-icon" id="backup-icon">✓</div>
+                    <h3>Backup (Hotspot)</h3>
+                    <p id="backup-status">Unavailable</p>
+                </div>
+                
+                <div class="status-card" id="active-card">
+                    <div>Active Connection</div>
+                    <h3 id="active-connection">PRIMARY</h3>
+                    <p id="active-desc">Using primary network</p>
+                </div>
+            </div>
+        </section>
+        
+        <section class="log-section">
+            <h2>Uptime Log</h2>
+            <div class="log-container" id="log-container">
+                <p>No events logged yet</p>
+            </div>
+        </section>
+        
+        <section class="honeypot-section">
+            <h2>🍯 Honeypot Alerts</h2>
+            <div style="font-size: 14px; color: #999; margin-bottom: 20px; padding: 10px 15px; background: #fff3e0; border-radius: 6px; display: inline-block;">
+                Total Alerts: <span id="alert-count">0</span>
+            </div>
+            <div class="alert-container" id="alert-container">
+                <p>No attacks detected (yet)</p>
+            </div>
+        </section>
+        
+        <footer>
+            <p>Last updated: <span id="last-update">--:--:--</span></p>
+        </footer>
+    </div>
+    
+    <script>
+        const API_BASE = window.location.origin;
+        
+        async function fetchStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/api/status`);
+                const data = await res.json();
+                updateStatusUI(data);
+            } catch (err) {
+                console.error('Error:', err);
+            }
+        }
+        
+        async function fetchUptimeLog() {
+            try {
+                const res = await fetch(`${API_BASE}/api/uptime-log`);
+                const data = await res.json();
+                updateLogUI(data.events || []);
+            } catch (err) {
+                console.error('Error:', err);
+            }
+        }
+        
+        async function fetchHoneypotAlerts() {
+            try {
+                const res = await fetch(`${API_BASE}/api/honeypot-alerts`);
+                const data = await res.json();
+                updateAlertsUI(data.alerts || []);
+                document.getElementById('alert-count').textContent = data.total_alerts || 0;
+            } catch (err) {
+                console.error('Error:', err);
+            }
+        }
+        
+        function updateStatusUI(data) {
+            const primary = data.primary_up;
+            const backup = data.backup_up;
+            const active = data.active;
+            
+            document.getElementById('primary-icon').textContent = primary ? '✓' : '✗';
+            document.getElementById('primary-icon').style.color = primary ? '#4CAF50' : '#f44336';
+            document.getElementById('primary-status').textContent = primary ? 'Online' : 'Offline';
+            
+            document.getElementById('backup-icon').textContent = backup ? '✓' : '✗';
+            document.getElementById('backup-icon').style.color = backup ? '#4CAF50' : '#f44336';
+            document.getElementById('backup-status').textContent = backup ? 'Available' : 'Unavailable';
+            
+            document.getElementById('active-connection').textContent = active.toUpperCase();
+            document.getElementById('active-desc').textContent = `Using ${active}`;
+            document.getElementById('active-card').style.backgroundColor = active === 'primary' ? '#e8f5e9' : '#fff3e0';
+            
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+        
+        function updateLogUI(events) {
+            const container = document.getElementById('log-container');
+            if (events.length === 0) {
+                container.innerHTML = '<p>No events logged yet</p>';
+                return;
+            }
+            container.innerHTML = events.slice(-20).reverse().map(e => `
+                <div class="log-entry">
+                    <span class="timestamp">${new Date(e.timestamp).toLocaleTimeString()}</span>
+                    <span class="event-type">${e.type}</span>
+                    <span>${e.details}</span>
+                </div>
+            `).join('');
+        }
+        
+        function updateAlertsUI(alerts) {
+            const container = document.getElementById('alert-container');
+            if (alerts.length === 0) {
+                container.innerHTML = '<p>No attacks detected (yet)</p>';
+                return;
+            }
+            container.innerHTML = alerts.slice(-15).reverse().map(a => `
+                <div class="alert-entry">
+                    <span class="timestamp">${new Date(a.timestamp).toLocaleTimeString()}</span>
+                    <span style="font-weight: 600; color: #f44336;">🔴 ${a.type}</span>
+                    <span class="alert-ip">IP: ${a.source_ip}</span>
+                </div>
+            `).join('');
+        }
+        
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            ws.onopen = () => { document.getElementById('ws-status').textContent = '🟢 Live'; };
+            ws.onmessage = (e) => { updateStatusUI(JSON.parse(e.data).status); };
+            ws.onclose = () => { document.getElementById('ws-status').textContent = '🔴 Offline'; setTimeout(connectWebSocket, 3000); };
+        }
+        
+        fetchStatus();
+        fetchUptimeLog();
+        fetchHoneypotAlerts();
+        connectWebSocket();
+        setInterval(() => { fetchStatus(); fetchUptimeLog(); fetchHoneypotAlerts(); }, 5000);
+    </script>
+</body>
+</html>
