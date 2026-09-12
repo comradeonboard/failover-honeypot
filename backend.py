@@ -8,6 +8,9 @@ import os
 import hashlib
 import secrets
 import urllib.request
+import urllib.error
+import re
+from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -698,6 +701,205 @@ def compute_attack_stats():
     }
 
 
+# ============ WEB SECURITY SCANNER ============
+
+SECURITY_HEADERS = {
+    "strict-transport-security": ("Strict-Transport-Security (HSTS)", "medium",
+        "Add a Strict-Transport-Security header to force HTTPS."),
+    "content-security-policy": ("Content-Security-Policy", "high",
+        "Add a CSP header to mitigate XSS and injection attacks."),
+    "x-frame-options": ("X-Frame-Options", "medium",
+        "Set X-Frame-Options to DENY or SAMEORIGIN to prevent clickjacking."),
+    "x-content-type-options": ("X-Content-Type-Options", "low",
+        "Set 'X-Content-Type-Options: nosniff' to stop MIME confusion."),
+    "referrer-policy": ("Referrer-Policy", "low",
+        "Set a Referrer-Policy to limit referrer leakage."),
+    "permissions-policy": ("Permissions-Policy", "low",
+        "Restrict powerful browser APIs (camera, geolocation, microphone)."),
+}
+
+SENSITIVE_PATHS = [
+    (".git/HEAD", "high", "Exposed .git repository",
+        "Restrict repository metadata — it leaks source code history."),
+    (".env", "high", "Exposed environment file",
+        "Block dotfiles — .env often holds credentials and keys."),
+    (".env.local", "high", "Exposed environment file",
+        "Block dotfiles — .env.local often holds credentials and keys."),
+    ("backup.sql", "high", "Exposed database backup",
+        "Remove database dumps from the web root."),
+    ("dump.sql", "high", "Exposed database backup",
+        "Remove database dumps from the web root."),
+    (".svn/entries", "high", "Exposed .svn repository",
+        "Restrict repository metadata from the web root."),
+    ("phpinfo.php", "high", "Exposed phpinfo page",
+        "Remove phpinfo pages from production — they leak server details."),
+    ("admin", "medium", "Admin panel exposed",
+        "Ensure admin surfaces are gated and not linked publicly."),
+    ("server-status", "medium", "Apache server-status exposed",
+        "Disable mod_status on production servers."),
+    (".htaccess", "medium", "Exposed .htaccess file",
+        "Block web-server config files from public access."),
+    (".DS_Store", "low", "Exposed .DS_Store file",
+        "Remove macOS metadata files — they leak directory listings."),
+]
+
+SEVERITY_PENALTY = {"high": 15, "medium": 8, "low": 4, "info": 0}
+
+class WebSecurityScanner:
+    """Audits a website for weak points: security headers, TLS, cookie flags,
+    exposed sensitive files, banner disclosure, mixed content, robots recon."""
+
+    def __init__(self):
+        self.scans = {}
+        self.lock = threading.Lock()
+
+    def normalize(self, target):
+        target = (target or "").strip()[:200]
+        if not target:
+            return None
+        parsed = urlparse(target)
+        if not parsed.scheme:
+            target = "https://" + target
+            parsed = urlparse(target)
+        if not parsed.netloc or " " in target:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def fetch(self, url, timeout=10):
+        req = urllib.request.Request(url, headers={"User-Agent": "FHM-SecurityAudit/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                headers = {k.lower(): v for k, v in resp.headers.items()}
+                cookies = resp.headers.get_all("Set-Cookie") or []
+                body = resp.read(400000).decode("utf-8", errors="ignore")
+                return resp.status, headers, cookies, body
+        except urllib.error.HTTPError as e:
+            headers = {k.lower(): v for k, v in e.headers.items()}
+            cookies = e.headers.get_all("Set-Cookie") or []
+            return e.code, headers, cookies, ""
+        except Exception:
+            return None, {}, [], ""
+
+    def scan(self, target):
+        findings = []
+
+        def add(severity, title, detail, fix):
+            findings.append({"severity": severity, "title": title, "detail": detail, "fix": fix})
+
+        status, headers, cookies, body = self.fetch(target)
+        if status is None:
+            with self.lock:
+                self.scans[target] = {
+                    "target": target,
+                    "status": "error",
+                    "findings": [],
+                    "scanned_at": datetime.now().isoformat(),
+                }
+            return
+
+        if not target.startswith("https://"):
+            add("high", "No HTTPS",
+                "Target is served over plain HTTP — all traffic is readable in transit.",
+                "Serve content over TLS and redirect HTTP to HTTPS.")
+
+        for header, (title, severity, fix) in SECURITY_HEADERS.items():
+            if header not in headers:
+                add(severity, f"Missing {title}",
+                    f"The response does not include the {title} header.", fix)
+
+        server = headers.get("server")
+        if server:
+            add("low", "Server banner disclosed",
+                f"The Server header reveals the technology: {server[:80]}",
+                "Suppress or genericize the Server header.")
+        powered = headers.get("x-powered-by")
+        if powered:
+            add("low", "Technology stack disclosed",
+                f"X-Powered-By reveals: {powered[:80]}",
+                "Remove the X-Powered-By header.")
+
+        for cookie in cookies:
+            name = cookie.split("=")[0].strip()[:50]
+            low = cookie.lower()
+            if "secure" not in low:
+                add("medium", "Cookie without Secure flag",
+                    f"Cookie '{name}' may be sent over plain HTTP.",
+                    "Set the Secure flag on all cookies.")
+            if "httponly" not in low:
+                add("medium", "Cookie without HttpOnly",
+                    f"Cookie '{name}' is readable by JavaScript (XSS theft risk).",
+                    "Set the HttpOnly flag on session cookies.")
+            if "samesite" not in low:
+                add("low", "Cookie without SameSite",
+                    f"Cookie '{name}' lacks cross-site request protection.",
+                    "Set SameSite=Lax or Strict.")
+
+        if target.startswith("https://") and body:
+            mixed = re.findall(r'(?:src|href)="http://[^"]*"', body)
+            if mixed:
+                add("medium", "Mixed content",
+                    f"{len(mixed)} insecure http:// resource(s) loaded on the HTTPS page.",
+                    "Load all subresources over HTTPS.")
+
+        origin = f"{urlparse(target).scheme}://{urlparse(target).netloc}"
+        root_sig = (body or "").strip()[:300]
+        for path, severity, title, fix in SENSITIVE_PATHS:
+            p_status, _, _, p_body = self.fetch(f"{origin}/{path}", timeout=8)
+            if p_status == 200:
+                if path == ".git/HEAD" and "ref:" not in p_body[:200]:
+                    continue
+                # SPA fallback servers answer any path with the index page
+                if root_sig and p_body.strip()[:300] == root_sig:
+                    continue
+                add(severity, title, f"/{path} is publicly accessible (HTTP 200).", fix)
+
+        r_status, _, _, r_body = self.fetch(f"{origin}/robots.txt", timeout=8)
+        if r_status == 200 and r_body.strip() and not (
+            root_sig and r_body.strip()[:300] == root_sig
+        ):
+            disallows = [
+                line.split(":", 1)[1].strip()
+                for line in r_body.splitlines()
+                if line.lower().startswith("disallow:")
+            ]
+            if disallows:
+                preview = ", ".join(disallows[:5])
+                add("info", "robots.txt recon",
+                    f"robots.txt discloses {len(disallows)} hidden path(s): {preview[:200]}",
+                    "Do not rely on robots.txt for protection; review whether listed paths should be secret.")
+
+        score = max(0, 100 - sum(SEVERITY_PENALTY.get(f["severity"], 0) for f in findings))
+        grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+        with self.lock:
+            self.scans[target] = {
+                "target": target,
+                "status": "complete",
+                "score": score,
+                "grade": grade,
+                "findings": findings,
+                "scanned_at": datetime.now().isoformat(),
+            }
+        logger.info(f"Web security audit of {target}: grade {grade} ({score}/100), {len(findings)} findings")
+
+    def start_scan(self, target):
+        with self.lock:
+            if self.scans.get(target, {}).get("status") == "scanning":
+                return
+            self.scans[target] = {
+                "target": target,
+                "status": "scanning",
+                "findings": [],
+                "scanned_at": datetime.now().isoformat(),
+            }
+        threading.Thread(target=self.scan, args=(target,), daemon=True).start()
+
+    def to_dict(self):
+        with self.lock:
+            scans = sorted(self.scans.values(), key=lambda s: s["scanned_at"], reverse=True)
+        return {"scans": scans[:20]}
+
+web_scanner = WebSecurityScanner()
+
 # ============ AUTHENTICATION ============
 
 AUTH_USERNAME = "comradeonboard"
@@ -818,6 +1020,22 @@ def get_network_devices():
 def trigger_network_scan():
     network_scanner.start_scan_async()
     return {"ok": True, "scanning": True}
+
+@app.get("/api/security/scans")
+def get_security_scans():
+    return web_scanner.to_dict()
+
+@app.post("/api/security/scan")
+async def scan_site(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    normalized = web_scanner.normalize(str(body.get("target", "")))
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Invalid target")
+    web_scanner.start_scan(normalized)
+    return {"ok": True, "target": normalized}
 
 @app.get("/health")
 def health():

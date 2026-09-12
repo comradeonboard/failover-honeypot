@@ -20,6 +20,7 @@ export function useMonitorData() {
   const [services, setServices] = useState([])
   const [stats, setStats] = useState(null)
   const [network, setNetwork] = useState(null)
+  const [securityScans, setSecurityScans] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -32,12 +33,13 @@ export function useMonitorData() {
         fetch('/api/honeypot/services', { headers: authHeaders() }),
         fetch('/api/honeypot/stats', { headers: authHeaders() }),
         fetch('/api/network/devices', { headers: authHeaders() }),
+        fetch('/api/security/scans', { headers: authHeaders() }),
       ])
       if (responses.some((r) => r.status === 401)) {
         handleAuthFailure()
         return
       }
-      const [statusData, logData, alertsData, servicesData, statsData, networkData] =
+      const [statusData, logData, alertsData, servicesData, statsData, networkData, securityData] =
         await Promise.all(responses.map((r) => r.json()))
 
       setStatus(statusData)
@@ -47,6 +49,7 @@ export function useMonitorData() {
       setServices(servicesData.services || [])
       setStats(statsData)
       setNetwork(networkData)
+      setSecurityScans(securityData.scans || [])
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Fetch error:', err)
@@ -83,6 +86,19 @@ export function useMonitorData() {
       fetchAll()
     } catch (err) {
       console.error('Scan error:', err)
+    }
+  }, [fetchAll])
+
+  const scanWebsite = useCallback(async (target) => {
+    try {
+      await fetch('/api/security/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ target }),
+      })
+      fetchAll()
+    } catch (err) {
+      console.error('Security scan error:', err)
     }
   }, [fetchAll])
 
@@ -138,7 +154,7 @@ export function useMonitorData() {
   }, [])
 
   return {
-    status, events, alerts, totalAlerts, services, stats, network,
-    wsConnected, lastUpdated, toggleService, clearAlerts, triggerScan,
+    status, events, alerts, totalAlerts, services, stats, network, securityScans,
+    wsConnected, lastUpdated, toggleService, clearAlerts, triggerScan, scanWebsite,
   }
 }

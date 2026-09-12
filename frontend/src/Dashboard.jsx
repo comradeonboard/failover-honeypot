@@ -2,6 +2,7 @@ import { useMonitorData } from './hooks/useMonitorData'
 import Header from './components/Header'
 import StatusSection from './components/StatusSection'
 import NetworkScan from './components/NetworkScan'
+import SecurityScanner from './components/SecurityScanner'
 import HoneypotServices from './components/HoneypotServices'
 import HoneypotAlerts from './components/HoneypotAlerts'
 import AttackStats from './components/AttackStats'
@@ -16,11 +17,13 @@ export default function Dashboard({ onLogout }) {
     services,
     stats,
     network,
+    securityScans,
     wsConnected,
     lastUpdated,
     toggleService,
     clearAlerts,
     triggerScan,
+    scanWebsite,
   } = useMonitorData()
 
   return (
@@ -33,6 +36,7 @@ export default function Dashboard({ onLogout }) {
         <Header wsConnected={wsConnected} onLogout={onLogout} />
         <StatusSection status={status} />
         <NetworkScan network={network} onScan={triggerScan} />
+        <SecurityScanner scans={securityScans} onScan={scanWebsite} />
         <HoneypotServices services={services} onToggle={toggleService} />
         <HoneypotAlerts alerts={alerts} totalAlerts={totalAlerts} onClear={clearAlerts} />
         <AttackStats stats={stats} />
