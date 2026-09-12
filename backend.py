@@ -13,7 +13,8 @@ import re
 from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
 import logging
@@ -1291,9 +1292,13 @@ def get_hosts():
 
 # ============ API ROUTES ============
 
-@app.get("/")
-def root():
+@app.get("/api/ping")
+def ping():
     return {"status": "ok", "message": "Failover Monitor Running"}
+
+# ============ FRONTEND (built React UI) ============
+# The catch-all SPA route is registered at the END of the file
+# (see serve_spa below) so every real API route takes precedence.
 
 @app.get("/api/status")
 def get_status():
@@ -1425,6 +1430,26 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(2)
     except Exception:
         pass
+
+# ============ FRONTEND (built React UI) ============
+# Registered last so all API routes above take precedence.
+from pathlib import Path
+
+DIST_DIR = Path(__file__).parent / "frontend" / "dist"
+
+if (DIST_DIR / "index.html").exists():
+    app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def serve_ui():
+        return FileResponse(DIST_DIR / "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str):
+        candidate = DIST_DIR / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(DIST_DIR / "index.html")
 
 if __name__ == "__main__":
     import uvicorn
