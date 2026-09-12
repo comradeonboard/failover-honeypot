@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./backend.py:/app/backend.py
+      - backend_data:/app/data
     ports:
       - "8000:8000"
       - "2222:2222"
@@ -31,5 +32,35 @@ services:
       - backend
     restart: unless-stopped
 
+  # Attacker hosts on the network — each runs in its own container with its
+  # own real IP, continuously attacking the honeypots like internet botnets.
+  attacker-1:
+    image: python:3.12-slim
+    volumes:
+      - ./attacker:/attacker:ro
+    command: ["python", "/attacker/bot.py", "backend"]
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  attacker-2:
+    image: python:3.12-slim
+    volumes:
+      - ./attacker:/attacker:ro
+    command: ["python", "/attacker/bot.py", "backend"]
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  attacker-3:
+    image: python:3.12-slim
+    volumes:
+      - ./attacker:/attacker:ro
+    command: ["python", "/attacker/bot.py", "backend"]
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   frontend_node_modules:
+  backend_data:

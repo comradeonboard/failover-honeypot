@@ -3,6 +3,8 @@ import time
 import threading
 import socket
 import concurrent.futures
+import sqlite3
+import os
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,13 +25,88 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============ ALERT PERSISTENCE ============
+
+DB_PATH = os.environ.get("HONEYPOT_DB", "/app/data/honeypot.db")
+
+class AlertStore:
+    """Persists honeypot alerts to SQLite so captures survive restarts."""
+
+    def __init__(self, path=DB_PATH):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except OSError:
+            path = "honeypot.db"
+        self.path = path
+        self.lock = threading.Lock()
+        self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                type TEXT NOT NULL,
+                source_ip TEXT,
+                source_port INTEGER,
+                service TEXT,
+                severity TEXT,
+                data TEXT
+            )"""
+        )
+        self.conn.commit()
+        logger.info(f"Alert store ready: {self.path}")
+
+    def add(self, alert):
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO alerts (timestamp, type, source_ip, source_port, service, severity, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    alert.get("timestamp"),
+                    alert.get("type"),
+                    alert.get("source_ip"),
+                    alert.get("source_port"),
+                    alert.get("service"),
+                    alert.get("severity"),
+                    alert.get("data"),
+                ),
+            )
+            self.conn.commit()
+
+    def load(self, limit=500):
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT timestamp, type, source_ip, source_port, service, severity, data FROM alerts ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        alerts = []
+        for r in reversed(rows):
+            alert = {
+                "timestamp": r[0],
+                "type": r[1],
+                "source_ip": r[2],
+                "service": r[4],
+                "severity": r[5],
+            }
+            if r[3] is not None:
+                alert["source_port"] = r[3]
+            if r[6]:
+                alert["data"] = r[6]
+            alerts.append(alert)
+        return alerts
+
+    def clear(self):
+        with self.lock:
+            self.conn.execute("DELETE FROM alerts")
+            self.conn.commit()
+
+alert_store = AlertStore()
+
 class SystemMonitor:
     def __init__(self):
         self.primary_up = True
         self.backup_up = False
         self.active_connection = "primary"
         self.uptime_log = []
-        self.honeypot_alerts = []
+        self.honeypot_alerts = alert_store.load()
 
     def log_event(self, event_type, details):
         timestamp = datetime.now().isoformat()
@@ -39,6 +116,7 @@ class SystemMonitor:
 
     def add_honeypot_alert(self, alert):
         alert["timestamp"] = datetime.now().isoformat()
+        alert_store.add(alert)
         self.honeypot_alerts.append(alert)
         if len(self.honeypot_alerts) > 500:
             self.honeypot_alerts = self.honeypot_alerts[-500:]
@@ -564,6 +642,7 @@ def toggle_honeypot(service_name: str):
 @app.post("/api/honeypot/clear")
 def clear_alerts():
     monitor.honeypot_alerts = []
+    alert_store.clear()
     logger.info("Honeypot alerts cleared")
     return {"ok": True, "cleared": True}
 

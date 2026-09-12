@@ -1,7 +1,7 @@
 # Base44 Dev Environment
 
 ## App Overview
-Fullstack security monitoring console: React (Vite) frontend in `frontend/` + FastAPI backend (`backend.py`). The backend monitors internet connectivity, runs 4 honeypots (SSH/HTTP/FTP/Telnet), sweeps the local /24 subnet for connected devices, and exposes REST + WebSocket APIs. Frontend is a dark tactical ops-console UI (no emojis, monospace uppercase).
+Fullstack security monitoring console: React (Vite) frontend in `frontend/` + FastAPI backend (`backend.py`) + 3 attacker-bot containers (`attacker/bot.py`). The backend monitors internet connectivity, runs 4 honeypots (SSH/HTTP/FTP/Telnet) with SQLite-persisted captures (`backend_data` volume, `/app/data/honeypot.db`), sweeps the local /24 subnet for connected devices, and exposes REST + WebSocket APIs. The attacker bots are separate containers with their own IPs that continuously attack the honeypots (SSH banner grabs, HTTP credential stuffing, FTP/Telnet brute-force) — the honeypots capture these as real sessions. Frontend is a dark tactical ops-console UI (no emojis, monospace uppercase).
 
 ## Setup
 - `docker compose -f docker-compose.base44.yml up -d --build`
@@ -15,7 +15,8 @@ Fullstack security monitoring console: React (Vite) frontend in `frontend/` + Fa
 
 ## Key Details
 - API: `GET /api/status`, `/api/uptime-log`, `/api/honeypot-alerts` (with `total_alerts`), `/api/honeypot/services`, `/api/honeypot/stats`, `/api/network/devices`; `POST /api/honeypot/toggle/{name}`, `/api/honeypot/clear`, `/api/network/scan`; `WS /ws` pushes full state every 2s.
-- Honeypots: 4 independent TCP listeners (HoneypotManager), start/stop at runtime, capture banners/credentials, severity-scored alerts (capped at 500 in memory).
+- Honeypots: 4 independent TCP listeners (HoneypotManager), start/stop at runtime, capture banners/credentials, severity-scored alerts. Alerts persist to SQLite (AlertStore) and survive backend restarts; in-memory list capped at 500. "Clear Alerts" wipes both memory and DB. Per-service hit counters are runtime-only (reset on restart).
+- Attacker bots: 3 compose services (attacker-1/2/3) running attacker/bot.py; each attacks a random honeypot every 4-15s. Deleting a bot = less traffic; scale by adding services.
 - Network scanner: ping-sweeps the local /24 (64 threads), resolves hostname via gethostbyaddr, MAC from /proc/net/arp. Auto-scans on startup; manual re-scan via POST /api/network/scan.
 - Honeypot state is in-memory — resets on backend restart (expected).
 - Backup interface check (usb0/wlan1/ppp0/teth0) always false in a container — expected.
